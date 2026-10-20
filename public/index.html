@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MF Screener — Indian Equity Funds</title>
+  <meta name="description" content="A free, research-only screener for Indian equity mutual funds. Real returns, risk and category comparisons computed from official NAV history." />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap" rel="stylesheet" />
+
+  <script src="https://cdn.tailwindcss.com/3.4.16"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'system-ui', 'sans-serif'],
+            display: ['"Plus Jakarta Sans"', 'Inter', 'sans-serif'],
+          },
+        },
+      },
+    };
+  </script>
+  <style>
+    body {
+      background:
+        radial-gradient(1200px 600px at 15% -10%, #eef2ff 0%, transparent 60%),
+        radial-gradient(1000px 520px at 100% -5%, #faf5ff 0%, transparent 55%),
+        radial-gradient(900px 500px at 50% 110%, #ecfeff 0%, transparent 55%),
+        #f8fafc;
+      background-attachment: fixed;
+    }
+    .tnum { font-variant-numeric: tabular-nums; }
+    /* All numeric cells align right and use tabular figures for clean columns. */
+    td.num, th.num { font-variant-numeric: tabular-nums; text-align: right; }
+    th.sortable { cursor: pointer; user-select: none; }
+    th.sortable:hover { color: #4f46e5; }
+    .sort-caret::after { content: '↕'; opacity: .35; margin-left: .25rem; font-size: .75em; }
+    .sort-asc::after { content: '↑'; opacity: 1; margin-left: .25rem; font-size: .75em; color: #4f46e5; }
+    .sort-desc::after { content: '↓'; opacity: 1; margin-left: .25rem; font-size: .75em; color: #4f46e5; }
+    /* Thin, tasteful scrollbar for the table on desktop. */
+    .table-scroll::-webkit-scrollbar { height: 10px; }
+    .table-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 9999px; }
+
+    /* Semantic value classes (defined here so colour never depends on the Tailwind
+       JIT catching dynamically-inserted class names). */
+    .v-pos  { color: #059669; }            /* emerald — good  */
+    .v-neg  { color: #e11d48; }            /* rose    — weak  */
+    .v-zero { color: #64748b; }            /* slate   — flat  */
+    .v-na   { color: #cbd5e1; }            /* faint   — N/A   */
+    .v-dim  { color: #cbd5e1; }            /* coming-soon placeholder */
+    .v-strong { font-weight: 600; }
+    .pill   { display:inline-block; padding:.125rem .5rem; border-radius:9999px; font-size:.6875rem; font-weight:600; white-space:nowrap; }
+    .badge  { display:inline-flex; align-items:center; gap:.25rem; padding:.0625rem .375rem; border-radius:.5rem; font-weight:600; font-size:.6875rem; white-space:nowrap; }
+    .badge-up   { background:#ecfdf5; color:#047857; }
+    .badge-down { background:#fff1f2; color:#be123c; }
+    .badge-flat { background:#f1f5f9; color:#475569; }
+    tbody tr:hover { background:#f8fafc; }
+  </style>
+</head>
+<body class="font-sans text-slate-800 antialiased min-h-screen">
+  <div class="mx-auto max-w-[1400px] px-4 sm:px-6 py-6 sm:py-10">
+
+    <!-- Header ------------------------------------------------------------ -->
+    <header class="mb-6">
+      <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <div class="flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-400 text-white shadow-sm ring-1 ring-white/40">
+          <span class="font-display text-lg font-extrabold">₹</span>
+        </div>
+        <h1 class="font-display text-2xl sm:text-3xl font-extrabold tracking-tight text-slate-900">
+          MF Screener
+        </h1>
+        <span class="rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-semibold text-indigo-600 ring-1 ring-inset ring-indigo-200">
+          Indian Equity Funds · Direct · Growth
+        </span>
+        <span id="updated-chip" class="ml-auto rounded-full bg-white/70 px-3 py-1 text-xs font-medium text-slate-500 ring-1 ring-inset ring-slate-200 tnum">
+          Loading…
+        </span>
+      </div>
+      <p class="mt-3 max-w-3xl text-sm text-slate-600">
+        A free, <span class="font-semibold text-slate-700">research-only</span> dashboard. Pick a category and compare funds on real
+        returns, risk and how each stacks up against its peers. Not investment advice; no transactions.
+      </p>
+      <p id="sources-line" class="mt-1 text-xs text-slate-400">Sources: …</p>
+    </header>
+
+    <!-- Controls ---------------------------------------------------------- -->
+    <section class="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,320px)_minmax(0,1fr)_auto]">
+      <label class="block">
+        <span class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">Category</span>
+        <select id="category-select"
+          class="w-full rounded-xl border-0 bg-white px-3.5 py-2.5 text-sm font-medium text-slate-700 shadow-sm ring-1 ring-inset ring-slate-200 focus:ring-2 focus:ring-indigo-500">
+          <option value="">All categories</option>
+        </select>
+      </label>
+      <label class="block">
+        <span class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">Search</span>
+        <input id="search-input" type="search" placeholder="Fund name or AMC…" autocomplete="off"
+          class="w-full rounded-xl border-0 bg-white px-3.5 py-2.5 text-sm text-slate-700 shadow-sm ring-1 ring-inset ring-slate-200 placeholder:text-slate-400 focus:ring-2 focus:ring-indigo-500" />
+      </label>
+      <div class="flex items-end">
+        <span id="result-count" class="rounded-xl bg-white px-3.5 py-2.5 text-sm font-semibold text-slate-600 shadow-sm ring-1 ring-inset ring-slate-200 tnum">—</span>
+      </div>
+    </section>
+
+    <!-- Table ------------------------------------------------------------- -->
+    <section class="rounded-2xl bg-white p-1 shadow-sm ring-1 ring-slate-200/70">
+      <div class="table-scroll overflow-x-auto rounded-xl">
+        <table class="w-full border-collapse text-sm">
+          <thead>
+            <tr id="table-head" class="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500">
+              <!-- headers injected by app.js -->
+            </tr>
+          </thead>
+          <tbody id="table-body" class="divide-y divide-slate-100">
+            <tr><td class="p-8 text-center text-slate-400" colspan="14">Loading funds…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+    <p class="mt-2 px-1 text-xs text-slate-400">
+      Returns over 1 year are compound annual growth rates (CAGR); shorter periods are absolute.
+      <span class="font-medium text-slate-500">N/A</span> means the fund lacks the history for that window.
+      <span class="font-medium text-slate-500">AUM</span> and <span class="font-medium text-slate-500">TER</span> arrive in a later phase.
+    </p>
+
+    <!-- Data status ------------------------------------------------------- -->
+    <section id="status-card" class="mt-6 rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200/70">
+      <h2 class="font-display text-sm font-bold uppercase tracking-wide text-slate-500">Data status</h2>
+      <div id="status-grid" class="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+        <!-- stat tiles injected by app.js -->
+      </div>
+      <p id="status-note" class="mt-4 text-xs leading-relaxed text-slate-400"></p>
+    </section>
+
+    <footer class="mt-8 pb-4 text-center text-xs text-slate-400">
+      Built for research and education only · Data © AMFI &amp; MFAPI.in · Figures carry their source &amp; as-of date
+    </footer>
+  </div>
+
+  <script type="module" src="./js/app.js"></script>
+</body>
+</html>

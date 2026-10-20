@@ -1,0 +1,62 @@
+name: Refresh fund data
+
+# Runs the data pipeline and commits the refreshed public/data/*.json back to the repo.
+# That commit is what updates the live site: Cloudflare Pages auto-deploys on every push.
+on:
+  workflow_dispatch: {}          # allow manual runs from the Actions tab
+  schedule:
+    - cron: '17 1 * * *'         # 01:17 UTC ≈ 06:47 IST daily (odd minute, after AMFI's overnight update)
+
+# Only one refresh at a time; don't cancel an in-progress run.
+concurrency:
+  group: refresh-fund-data
+  cancel-in-progress: false
+
+permissions:
+  contents: write                # needed to push the refreshed JSON
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0         # full history so the resilient rebase-on-reject can work
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Build data (fetch AMFI + MFAPI, compute metrics)
+        run: node scripts/build.mjs
+
+      - name: Verify sample funds
+        run: node scripts/verify.mjs || true   # informational; never fails the refresh
+
+      - name: Commit & push refreshed data
+        run: |
+          set -e
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add public/data/*.json
+          if git diff --cached --quiet; then
+            echo "No data changes; nothing to commit."
+            exit 0
+          fi
+          git commit -m "chore(data): nightly NAV refresh ($(date -u +%Y-%m-%d))"
+          n=0
+          until [ "$n" -ge 4 ]; do
+            if git push origin "HEAD:${GITHUB_REF_NAME}"; then
+              echo "Pushed refreshed data."
+              exit 0
+            fi
+            n=$((n + 1))
+            echo "Push rejected; syncing with origin (attempt $n/4)…"
+            git fetch origin "${GITHUB_REF_NAME}"
+            git rebase -X theirs "origin/${GITHUB_REF_NAME}" || git rebase --abort
+            sleep $((2 * n))
+          done
+          echo "Failed to push after 4 attempts." >&2
+          exit 1

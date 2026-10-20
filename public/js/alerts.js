@@ -9,6 +9,7 @@ const TYPE_LABEL = {
   NEW_FUND: 'New fund', FUND_CLOSED: 'Closed', MANAGER_CHANGE: 'Manager', RECATEGORIZED: 'Recategorised',
   BENCHMARK_CHANGE: 'Benchmark', TER_CHANGE: 'Fees', RISKOMETER_CHANGE: 'Risk rating', EXIT_LOAD_CHANGE: 'Exit load',
   AUM_MOVE: 'Fund size', BIG_NAV_MOVE: 'NAV move', HISTORY_MILESTONE: 'Milestone', DATA_HEALTH: 'Data health', TRACKING_STARTED: 'Info',
+  UNIVERSE_EXPANDED: 'Universe',
 };
 let openDetailFn = null;
 export function setAlertsDetailHandler(fn) { openDetailFn = fn; }

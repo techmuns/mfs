@@ -37,6 +37,16 @@ export function fetchAmfiNavAll(opts) {
 
 const DIVIDEND_MARKERS = /idcw|dividend|payout|reinvest|bonus/;
 
+// AMFI files passive INDEX funds under "Other Scheme - Index Funds" (not an Equity header), so
+// they are picked up as a separate pass. We keep only EQUITY index funds — debt / target-maturity
+// / commodity index trackers are excluded by name.
+const INDEX_EXCLUDE = /target maturity|g-?sec|gilt|\bsdl\b|\bbond\b|liquid|overnight|1d rate|money market|t-?bill|duration|debt|psu.*debt|banking.*psu|aaa|credit|corporate bond|floater|bharat bond|gold|silver|commodit/i;
+
+/** True for the "Other Scheme - Index Funds" section header (open-endedness is checked separately). */
+function isIndexFundSection(rawCategory) {
+  return /index\s*fund/i.test(rawCategory);
+}
+
 /**
  * Fold an AMFI equity sub-category label into a canonical SEBI category.
  * Returns null when the label is not a recognised equity category (so non-equity
@@ -105,9 +115,11 @@ function cleanIsin(s) {
 }
 
 /**
- * Parse the NAVAll text and return the Phase-1 universe:
- * OPEN-ENDED EQUITY schemes, DIRECT plan, GROWTH option only.
- * Each entry: { schemeCode, name, amc, rawCategory, category, plan, option, isin, amfiNav, amfiDate }.
+ * Parse the NAVAll text and return the universe:
+ * OPEN-ENDED, DIRECT plan, GROWTH option — ACTIVE equity schemes (every equity sub-category) PLUS
+ * passive EQUITY index funds (category "Index Fund", `isIndex:true`; debt/commodity index funds
+ * excluded by name). Index funds are additive — they live in their own peer groups downstream.
+ * Each entry: { schemeCode, name, amc, rawCategory, category, isIndex, plan, option, isin, amfiNav, amfiDate }.
  */
 export function parseAmfiEquityUniverse(text) {
   const lines = text.split(/\r?\n/);
@@ -138,7 +150,10 @@ export function parseAmfiEquityUniverse(text) {
       const name = f[cols.name] || '';
       const { isDirect, plan } = classifyPlan(cols.plan >= 0 ? f[cols.plan] : '', name);
       const { isGrowth, option } = classifyOption(cols.option >= 0 ? f[cols.option] : '', name);
-      if (!isDirect || !isGrowth) continue; // Phase 1 keeps only Direct + Growth
+      if (!isDirect || !isGrowth) continue; // keep only Direct + Growth
+      // Under "Index Funds", keep EQUITY index trackers only — drop debt / target-maturity / commodity.
+      const isIndex = category === 'Index Fund';
+      if (isIndex && INDEX_EXCLUDE.test(name)) continue;
 
       const schemeCode = Number(f[cols.schemeCode]);
       if (seen.has(schemeCode)) continue;
@@ -151,6 +166,7 @@ export function parseAmfiEquityUniverse(text) {
         amc: amc || null,
         rawCategory,
         category,
+        isIndex,
         plan,
         option,
         isin: cleanIsin(f[cols.isinGrowth]),
@@ -166,6 +182,7 @@ export function parseAmfiEquityUniverse(text) {
       schemeType = headerMatch[1].trim();
       rawCategory = headerMatch[2].trim();
       category = normalizeEquityCategory(rawCategory);
+      if (!category && isIndexFundSection(rawCategory)) category = 'Index Fund'; // passive index funds
       amc = null; // the AMC name appears on the next non-blank line
     } else {
       amc = line;

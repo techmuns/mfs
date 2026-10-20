@@ -10,8 +10,10 @@
 // enough history to have a non-null value for it, so the sample size `n` differs per metric
 // and is reported per metric in `sampleSize`.
 
-// Metrics aggregated per category.
-export const CATEGORY_METRICS = ['y1', 'y3', 'y5', 'y10', 'volatility', 'sharpe', 'rolling3yAvg'];
+// Metrics aggregated per category. excess3y/excess5y are benchmark excess (decimal fraction);
+// terDirect is the direct-plan expense ratio in PERCENT (e.g. 0.69 = 0.69%), so its mean/median
+// are percent too — the UI must not ×100 it.
+export const CATEGORY_METRICS = ['y1', 'y3', 'y5', 'y10', 'volatility', 'sharpe', 'rolling3yAvg', 'excess3y', 'excess5y', 'terDirect'];
 
 function metricValue(f, metric) {
   switch (metric) {
@@ -22,6 +24,9 @@ function metricValue(f, metric) {
     case 'volatility': return f.risk.volatility;
     case 'sharpe': return f.risk.sharpe;
     case 'rolling3yAvg': return f.rolling.y3 ? f.rolling.y3.avg : null;
+    case 'excess3y': return f.benchmark && f.benchmark.excess ? f.benchmark.excess.y3 : null;
+    case 'excess5y': return f.benchmark && f.benchmark.excess ? f.benchmark.excess.y5 : null;
+    case 'terDirect': return f.costs ? f.costs.terDirect : null;
     default: return null;
   }
 }

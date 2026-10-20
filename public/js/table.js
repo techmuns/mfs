@@ -65,7 +65,10 @@ function cellHtml(col, f, cats, st) {
   }
   const raw = col.grade === 'vs' ? col.get(f) : col.get(f, cats);
   const display = col.key.startsWith('vs') ? vsFmt(raw) : col.fmt(raw);
-  if (display == null) return `<td class="px-3 py-2 ${align}"><span class="v-na">N/A</span></td>`;
+  if (display == null) {
+    const reason = col.naReason ? col.naReason(f) : '';
+    return `<td class="px-3 py-2 ${align}"><span class="v-na"${reason ? ` title="N/A — ${esc(reason)}"` : ''}>N/A</span></td>`;
+  }
   const gv = (col.gradeVal || col.get)(f, cats);
   const t = col.grade ? gradeT(col, gv, st) : null;
   const h = t == null ? null : heat(t);

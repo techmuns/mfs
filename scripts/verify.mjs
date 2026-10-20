@@ -41,8 +41,10 @@ for (const key of WANT) {
   console.log(`    1Y ${pct(f.returns.y1)}   3Y ${pct(f.returns.y3)}   5Y ${pct(f.returns.y5)}   10Y ${pct(f.returns.y10)}   SI ${pct(f.returns.si)}`);
   console.log(`    3Y-roll avg ${f.rolling.y3 ? pct(f.rolling.y3.avg) : 'N/A'} (n=${f.rolling.y3?.n ?? 0})   vol ${pct(f.risk.volatility)}   Sharpe ${f.risk.sharpe?.toFixed(3) ?? 'N/A'}   maxDD ${pct(f.risk.maxDrawdown)}`);
   console.log(`    5Y vs category: ${f.vsCategory.y5.ratio?.toFixed(2) ?? 'N/A'}x  (${f.vsCategory.y5.ppGap != null ? (f.vsCategory.y5.ppGap >= 0 ? '+' : '') + (f.vsCategory.y5.ppGap * 100).toFixed(2) + 'pp' : 'N/A'})`);
-
-  // Independent 5Y CAGR from raw NAVs.
+  // Phase-3A enrichment
+  const b = f.benchmark || {};
+  console.log(`    benchmark: ${b.indexName || 'N/A'} (${b.basis || b.reason || ''}) | 5Y excess ${pct(b.excess?.y5)}  ratio ${b.ratio?.y5?.toFixed(2) ?? 'N/A'}`);
+  console.log(`    TER direct ${f.costs?.terDirect ?? 'N/A'}%  regular ${f.costs?.terRegular ?? 'N/A'}%  | AUM ₹${f.aum?.cr ?? 'N/A'}cr (${f.aum?.asOf ?? ''})  | risk ${f.riskometer || 'N/A'}  | mgr ${f.manager ? f.manager.names[0].name : 'N/A'}`);
   const raw = await fetchScheme(f.schemeCode);
   const s = rawSeries(raw);
   const latest = s[s.length - 1];

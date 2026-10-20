@@ -67,7 +67,7 @@ export function renderCompare(container) {
       const disp = v == null ? '<span class="v-na">N/A</span>' : (row.score ? `<span class="rounded-md px-1.5 py-0.5 font-bold text-white" style="background:${scoreColor(v)}">${esc(row.fmt(v, f))}</span>` : esc(row.fmt(v, f)));
       return `<td class="num px-3 py-2 tnum ${i === bi ? 'bg-emerald-50 font-bold text-emerald-700' : ''}">${disp}${i === bi && !row.score ? ' <span class="text-[10px] text-emerald-500">●</span>' : ''}</td>`;
     }).join('');
-    return `<tr class="border-t border-slate-100"><td class="px-3 py-2 text-left text-xs font-medium text-slate-500">${row.label}</td>${cells}</tr>`;
+    return `<tr><td class="px-3 py-2 text-left text-xs font-medium text-slate-500">${row.label}</td>${cells}</tr>`;
   }).join('');
 
   container.innerHTML = `<div class="space-y-4">
@@ -81,10 +81,11 @@ export function renderCompare(container) {
         <span class="cmp-start text-[11px] text-slate-400"></span>
         <label class="ml-auto flex items-center gap-1.5 text-xs text-slate-500"><input type="checkbox" id="cmp-bench" class="h-3.5 w-3.5 rounded accent-indigo-600">benchmark</label>
         <button id="cmp-zoom" class="rounded-lg bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-200">Zoom to last correction</button></div>
+      <div class="mb-2 text-xs text-slate-500">What ₹10,000 would have grown to in each fund since their common start date. Every line begins together at ₹10,000, so the higher line is the one that grew more.</div>
       <div class="cmp-chart h-72 w-full rounded-xl bg-slate-50 ring-1 ring-inset ring-slate-100"></div>
       <div class="cmp-chart-msg mt-1 text-center text-[11px] text-slate-400">Loading live NAV for each fund…</div>
     </div>
-    <div class="card overflow-hidden"><div class="table-scroll overflow-x-auto"><table class="w-full text-sm"><thead><tr class="bg-slate-50/60"><th class="px-3 py-2"></th>${headCells}</tr></thead><tbody>${rowsHtml}</tbody></table></div>
+    <div class="card overflow-hidden"><div class="table-scroll overflow-x-auto"><table class="w-full gridtbl text-sm"><thead><tr><th class="px-3 py-2"></th>${headCells}</tr></thead><tbody>${rowsHtml}</tbody></table></div>
       <p class="px-3 py-2 text-[11px] text-slate-400">Green = best value in the row. Research only — not investment advice.</p></div>
   </div>`;
 

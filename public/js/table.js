@@ -53,27 +53,27 @@ function gradeT(col, v, st) {
 }
 
 function cellHtml(col, f, cats, st) {
-  const align = col.align === 'left' ? 'text-left' : 'num text-right';
-  if (col.soon) return `<td class="px-3 py-2 ${align}"><span class="v-dim" title="${esc(col.tip)}">—</span></td>`;
+  const align = col.align === 'left' ? 'text-left' : 'num';
+  if (col.soon) return `<td class="${align}"><span class="v-dim" title="${esc(col.tip)}">—</span></td>`;
   if (col.key === 'name') {
     const star = inShortlist(f.schemeCode) ? '<span class="text-amber-400" title="In shortlist">★</span> ' : '';
-    return `<td class="px-3 py-2 text-left"><div class="font-semibold text-slate-800 leading-tight">${star}${esc(f.name)}</div><div class="text-[11px] text-slate-400">${esc(f.amc || '')}</div></td>`;
+    return `<td class="text-left stick stick-1"><div class="fund-name font-semibold text-slate-800 leading-tight" title="${esc(f.name)}">${star}${esc(f.name)}</div><div class="fund-name text-[11px] text-slate-400" title="${esc(f.amc || '')}">${esc(f.amc || '')}</div></td>`;
   }
   if (col.key === 'group' || col.key === 'catRaw') {
     const g = col.get(f); const c = groupColor(f.peerGroup);
-    return `<td class="px-3 py-2 text-left"><span class="pill" style="background:${c}1a;color:${c}">${esc(g)}</span></td>`;
+    return `<td class="text-left"><span class="pill" style="background:${c}1a;color:${c}" title="${esc(g)}">${esc(g)}</span></td>`;
   }
   const raw = col.grade === 'vs' ? col.get(f) : col.get(f, cats);
   const display = col.key.startsWith('vs') ? vsFmt(raw) : col.fmt(raw);
   if (display == null) {
     const reason = col.naReason ? col.naReason(f) : '';
-    return `<td class="px-3 py-2 ${align}"><span class="v-na"${reason ? ` title="N/A — ${esc(reason)}"` : ''}>N/A</span></td>`;
+    return `<td class="${align}"><span class="v-na"${reason ? ` title="N/A — ${esc(reason)}"` : ''}>N/A</span></td>`;
   }
   const gv = (col.gradeVal || col.get)(f, cats);
   const t = col.grade ? gradeT(col, gv, st) : null;
   const h = t == null ? null : heat(t);
   const style = h ? `background:${h.bg};color:${h.fg}` : '';
-  return `<td class="px-3 py-2 ${align}" style="${style}"><span class="v-strong">${esc(display)}</span></td>`;
+  return `<td class="${align}" style="${style}"><span class="v-strong">${esc(display)}</span></td>`;
 }
 
 export function renderTable(mount, funds, cats) {
@@ -83,25 +83,30 @@ export function renderTable(mount, funds, cats) {
   const scroll = mount.querySelector('.tbl-scroll');
 
   const allChecked = sorted.length > 0 && sorted.every((f) => selected.has(f.schemeCode));
-  const head = `<th class="px-3 py-2 w-9"><input type="checkbox" class="chk-all h-4 w-4 rounded border-slate-300 accent-indigo-600" ${allChecked ? 'checked' : ''}></th>` +
+  const head = `<th class="stick stick-0"><input type="checkbox" class="chk-all h-4 w-4 rounded border-slate-300 accent-indigo-600" ${allChecked ? 'checked' : ''}></th>` +
     cols.map((col) => {
       const active = state.sort.key === col.key;
       const caret = col.soon ? '' : active ? (state.sort.dir === 'asc' ? 'sort-asc' : 'sort-desc') : 'sort-caret';
-      const align = col.align === 'left' ? 'text-left' : 'num text-right';
-      const cls = `px-3 py-2 ${align} ${col.soon ? '' : 'sortable'} ${caret} ${active ? 'text-indigo-600' : ''}`;
-      return `<th class="${cls}" data-key="${col.key}"><span class="inline-flex items-center gap-1">${esc(col.label)}<span class="qmark" title="${esc(col.tip)}">?</span></span></th>`;
+      const align = col.align === 'left' ? 'text-left' : 'num';
+      const stickCls = col.key === 'name' ? ' stick stick-1' : '';
+      const cls = `${align} ${col.soon ? '' : 'sortable'} ${caret} ${active ? 'text-indigo-600' : ''}${stickCls}`;
+      return `<th class="${cls}" data-key="${col.key}">${esc(col.label)} <span class="qmark" title="${esc(col.tip)}">?</span></th>`;
     }).join('');
+
+  // Explicit widths (table-layout:fixed) keep every cell on one line; 40px lead col = checkbox.
+  const colgroup = `<colgroup><col style="width:40px">${cols.map((c) => `<col style="width:${c.w || 90}px">`).join('')}</colgroup>`;
+  const totalW = 40 + cols.reduce((s, c) => s + (c.w || 90), 0);
 
   const body = sorted.length === 0
     ? `<tr><td class="p-10 text-center text-slate-400" colspan="${cols.length + 1}">No funds match the current filters. Try relaxing a rule or hitting Reset.</td></tr>`
     : sorted.map((f) => {
       const checked = selected.has(f.schemeCode) ? 'checked' : '';
       return `<tr class="row cursor-pointer" data-code="${f.schemeCode}">` +
-        `<td class="px-3 py-2" data-nodrill><input type="checkbox" class="chk h-4 w-4 rounded border-slate-300 accent-indigo-600" data-code="${f.schemeCode}" ${checked}></td>` +
+        `<td class="stick stick-0" data-nodrill><input type="checkbox" class="chk h-4 w-4 rounded border-slate-300 accent-indigo-600" data-code="${f.schemeCode}" ${checked}></td>` +
         cols.map((col) => cellHtml(col, f, cats, st)).join('') + '</tr>';
     }).join('');
 
-  scroll.innerHTML = `<table class="w-full border-collapse text-sm"><thead><tr class="border-b border-slate-200 bg-slate-50/60 text-xs font-semibold uppercase tracking-wide text-slate-500">${head}</tr></thead><tbody class="divide-y divide-slate-100">${body}</tbody></table>`;
+  scroll.innerHTML = `<table class="text-sm" style="width:${totalW}px">${colgroup}<thead><tr class="text-xs font-semibold uppercase tracking-wide">${head}</tr></thead><tbody>${body}</tbody></table>`;
 
   // Header sort
   scroll.querySelectorAll('th.sortable').forEach((th) => th.addEventListener('click', () => {

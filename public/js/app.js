@@ -2,7 +2,7 @@
 // wires the Screener, Fund Details, Compare, Shortlist and Data Status tabs together.
 
 import { state, subscribe, emit, removeShortlist, clearShortlist } from './state.js';
-import { esc, pct, num, fmtDate, groupColor, orderGroups, ICON, GROUP_COLOR } from './meta.js';
+import { esc, pct, num, fmtDate, groupColor, ICON } from './meta.js';
 import { mountScreener, render as renderScreener } from './screener.js';
 import { setDrillHandler, setCompareHandler, setChangeHandler } from './table.js';
 import { openDetail, renderDetail, setDetailChangeHandler } from './detail.js';
@@ -32,7 +32,6 @@ function setTab(tab) {
   if (tab === 'screener') renderScreener();
   if (tab === 'detail') renderFundDetails();
   if (tab === 'shortlist') renderShortlist();
-  if (tab === 'status') renderStatus();
   if (tab === 'compare') renderCompare(document.getElementById('tab-compare'));
 }
 
@@ -77,21 +76,50 @@ function renderHeader() {
 }
 
 function openSources() {
-  const s = state.status;
+  const s = state.status, c = s.counts || {}, cov = s.coverage;
+  const stat = (k, v, sub) => `<div class="rounded-xl bg-slate-50 p-3 ring-1 ring-inset ring-slate-100">
+    <div class="text-[11px] font-medium text-slate-400">${esc(k)}</div>
+    <div class="mt-0.5 font-display text-base font-extrabold tnum text-slate-800">${esc(v)}</div>${sub ? `<div class="text-[11px] text-slate-400">${esc(sub)}</div>` : ''}</div>`;
+  const covRow = (label, n, grad) => `<div class="flex items-center gap-2"><span class="w-36 shrink-0 text-xs text-slate-500">${esc(label)}</span>
+      <div class="h-2.5 flex-1 rounded-full bg-slate-100"><div class="h-2.5 rounded-full" style="width:${Math.round((n / cov.total) * 100)}%;background:${grad}"></div></div>
+      <span class="w-14 text-right text-xs font-semibold tnum text-slate-600">${n}/${cov.total}</span></div>`;
+  const covBlock = cov ? `<div class="mt-4"><h3 class="mb-2 font-display text-sm font-bold text-slate-700">Field coverage</h3>
+      <div class="space-y-1.5">
+        ${covRow('Benchmark (TRI) excess', cov.benchmark, 'linear-gradient(90deg,#6366f1,#4f46e5)')}
+        ${covRow('Composite score', cov.score ?? 0, 'linear-gradient(90deg,#8b5cf6,#6d28d9)')}
+        ${covRow('Expense ratio (TER)', cov.ter, 'linear-gradient(90deg,#a855f7,#7c3aed)')}
+        ${covRow('Fund size (AUM)', cov.aum, 'linear-gradient(90deg,#38bdf8,#0ea5e9)')}
+        ${covRow('Fund manager', cov.manager, 'linear-gradient(90deg,#10b981,#059669)')}
+        ${covRow('Exit load', cov.exitLoad, 'linear-gradient(90deg,#f59e0b,#d97706)')}
+        ${covRow('Riskometer', cov.riskometer, 'linear-gradient(90deg,#14b8a6,#0d9488)')}
+      </div>
+      <p class="mt-2 text-[11px] text-slate-400">Gaps are genuine non-disclosures or (for benchmark) funds with no mappable Nifty TRI — shown as N/A with a reason, never faked.</p></div>` : '';
   const modal = document.getElementById('modal-root');
   modal.innerHTML = `<div class="modal-backdrop fixed inset-0 z-[60] grid place-items-center bg-slate-900/40 p-4">
-    <div class="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl">
-      <div class="mb-3 flex items-center justify-between"><h2 class="font-display text-lg font-bold text-slate-800">Data sources</h2>
+    <div class="flex max-h-[88vh] w-full max-w-xl flex-col rounded-2xl bg-white shadow-2xl">
+      <div class="flex items-center justify-between border-b border-slate-100 p-5 pb-3"><div>
+        <h2 class="font-display text-lg font-bold text-slate-800">Data sources &amp; freshness</h2>
+        <p class="text-xs text-emerald-600">Updated ${esc(fmtDate(s.data_as_of))} · rebuilt ${esc(new Date(s.generated_at).toUTCString())}</p></div>
         <button class="modal-x rounded-lg p-1 text-slate-400 hover:bg-slate-100">${ICON.close}</button></div>
-      <div class="space-y-3 text-sm">
-        ${s.sources.map((src) => `<div class="rounded-xl bg-slate-50 p-3">
-          <div class="font-semibold text-slate-700">${esc(src.name)}</div>
-          <a href="${esc(src.url)}" target="_blank" rel="noopener" class="break-all text-xs text-indigo-500 underline decoration-dotted">${esc(src.url)}</a>
-          <div class="mt-1 text-xs text-slate-500">${esc(src.note || '')} · as of ${esc(fmtDate(src.asOf))}</div></div>`).join('')}
-        <div class="rounded-xl bg-slate-50 p-3"><div class="font-semibold text-slate-700">Risk-free rate</div>
-          <div class="text-xs text-slate-500">${(s.riskFreeRate.annual_rate * 100).toFixed(2)}% — ${esc(s.riskFreeRate.source)}, as of ${esc(fmtDate(s.riskFreeRate.as_of))}</div></div>
+      <div class="overflow-y-auto p-5 pt-4">
+        <div class="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          ${stat('Funds', c.equityDirectGrowth ?? state.funds.length, 'equity · Direct · Growth')}
+          ${stat('Peer groups', c.peerGroups ?? Object.keys(state.categories).length, 'incl. thematic splits')}
+          ${stat('≥ 5Y history', c.with5y ?? '—', `${c.with3y ?? '—'} ≥ 3Y · ${c.with10y ?? '—'} ≥ 10Y`)}
+          ${stat('Risk-free rate', (s.riskFreeRate.annual_rate * 100).toFixed(2) + '%', 'used in Sharpe')}
+        </div>
+        ${covBlock}
+        <h3 class="mb-2 mt-4 font-display text-sm font-bold text-slate-700">Sources</h3>
+        <div class="space-y-2 text-sm">
+          ${s.sources.map((src) => `<div class="rounded-xl bg-slate-50 p-3">
+            <div class="font-semibold text-slate-700">${esc(src.name)}</div>
+            <a href="${esc(src.url)}" target="_blank" rel="noopener" class="break-all text-xs text-indigo-500 underline decoration-dotted">${esc(src.url)}</a>
+            <div class="mt-1 text-xs text-slate-500">${esc(src.note || '')}${src.asOf ? ' · as of ' + esc(fmtDate(src.asOf)) : ''}</div></div>`).join('')}
+          <div class="rounded-xl bg-slate-50 p-3"><div class="font-semibold text-slate-700">Risk-free rate</div>
+            <div class="text-xs text-slate-500">${(s.riskFreeRate.annual_rate * 100).toFixed(2)}% — ${esc(s.riskFreeRate.source)}, as of ${esc(fmtDate(s.riskFreeRate.as_of))}</div></div>
+        </div>
+        <p class="mt-3 text-xs text-slate-400">Research only — not investment advice. Figures are computed from real NAV history; insufficient history shows N/A.</p>
       </div>
-      <p class="mt-3 text-xs text-slate-400">Research only — not investment advice. Figures are computed from real NAV history; insufficient history shows N/A.</p>
     </div></div>`;
   const close = () => (modal.innerHTML = '');
   modal.querySelector('.modal-x').addEventListener('click', close);
@@ -154,58 +182,6 @@ function renderFundDetails() {
   });
   drop.addEventListener('click', (e) => { const b = e.target.closest('[data-code]'); if (!b) return; detailFund = state.funds.find((x) => x.schemeCode === +b.dataset.code); drop.classList.add('hidden'); renderFundDetails(); });
   document.addEventListener('click', (e) => { if (!drop.contains(e.target) && e.target !== inp) drop.classList.add('hidden'); });
-}
-
-// ---- Data Status tab -------------------------------------------------------
-function renderStatus() {
-  const el = document.getElementById('tab-status');
-  const s = state.status, c = s.counts;
-  const tile = (label, value, accent, sub) => `<div class="card p-4"><div class="text-xs font-medium text-slate-400">${esc(label)}</div>
-    <div class="mt-1 font-display text-2xl font-extrabold tnum" style="color:${accent}">${esc(value)}</div>${sub ? `<div class="text-[11px] text-slate-400">${esc(sub)}</div>` : ''}</div>`;
-  const groups = orderGroups(Object.keys(state.categories));
-  const maxN = Math.max(...groups.map((g) => state.categories[g].n));
-  const bars = groups.map((g) => { const n = state.categories[g].n, col = GROUP_COLOR[g] || '#64748b';
-    return `<div class="flex items-center gap-2"><span class="w-44 shrink-0 truncate text-xs text-slate-500" title="${esc(g)}">${esc(g)}</span>
-      <div class="h-4 flex-1 rounded-full bg-slate-100"><div class="h-4 rounded-full" style="width:${Math.round(n / maxN * 100)}%;background:${col}"></div></div>
-      <span class="w-8 text-right text-xs font-semibold tnum text-slate-600">${n}</span></div>`; }).join('');
-  const live = ['Returns (1M–10Y, since inception) & 3Y/5Y rolling', 'Risk: volatility, Sharpe, Sortino, max drawdown', 'Peer-group averages & vs-category', 'Benchmark excess vs Total Return Index (NAV+TRI overlay)', 'Fees (TER), AUM, riskometer, managers, exit load', 'Explainable composite score (re-weightable)', 'Fund-detail page, compare up to 5, 🔔 what’s-new alerts'];
-  const soon = ['Portfolio holdings & sector mix (out of scope for now)'];
-
-  const cov = s.coverage;
-  const covCard = cov ? (() => {
-    const row = (label, n, grad) => `<div class="flex items-center gap-2"><span class="w-36 shrink-0 text-xs text-slate-500">${label}</span>
-      <div class="h-4 flex-1 rounded-full bg-slate-100"><div class="h-4 rounded-full" style="width:${Math.round(n / cov.total * 100)}%;background:${grad}"></div></div>
-      <span class="w-20 text-right text-xs font-semibold tnum text-slate-600">${n}/${cov.total}</span></div>`;
-    return `<div class="card p-4"><h3 class="mb-3 font-display text-sm font-bold text-slate-700">Field coverage</h3><div class="space-y-1.5">
-      ${row('Benchmark (TRI) excess', cov.benchmark, 'linear-gradient(90deg,#6366f1,#4f46e5)')}
-      ${row('Composite score', cov.score ?? 0, 'linear-gradient(90deg,#8b5cf6,#6d28d9)')}
-      ${row('Expense ratio (TER)', cov.ter, 'linear-gradient(90deg,#a855f7,#7c3aed)')}
-      ${row('Fund size (AUM)', cov.aum, 'linear-gradient(90deg,#38bdf8,#0ea5e9)')}
-      ${row('Fund manager', cov.manager, 'linear-gradient(90deg,#10b981,#059669)')}
-      ${row('Exit load', cov.exitLoad, 'linear-gradient(90deg,#f59e0b,#d97706)')}
-      ${row('Riskometer', cov.riskometer, 'linear-gradient(90deg,#14b8a6,#0d9488)')}
-    </div><p class="mt-2 text-[11px] text-slate-400">Gaps are genuine non-disclosures or (for benchmark) funds with no mappable Nifty TRI — shown as N/A with a reason, never faked.</p></div>`;
-  })() : '';
-  el.innerHTML = `
-    <div class="grid grid-cols-2 gap-3 lg:grid-cols-4">
-      ${tile('Funds', c.equityDirectGrowth, '#4f46e5', 'equity · Direct · Growth')}
-      ${tile('≥ 5Y history', c.with5y, '#8b5cf6', `${c.with3y} have ≥ 3Y · ${c.with10y} have ≥ 10Y`)}
-      ${tile('Peer groups', c.peerGroups ?? Object.keys(state.categories).length, '#10b981', 'incl. thematic splits')}
-      ${tile('Risk-free rate', (s.riskFreeRate.annual_rate * 100).toFixed(2) + '%', '#f59e0b', 'used in Sharpe')}
-    </div>
-    ${covCard ? `<div class="mt-4">${covCard}</div>` : ''}
-    <div class="mt-4 grid gap-4 lg:grid-cols-2">
-      <div class="card p-4"><h3 class="mb-3 font-display text-sm font-bold text-slate-700">Funds per peer group</h3><div class="space-y-1.5">${bars}</div></div>
-      <div class="space-y-4">
-        <div class="card p-4"><h3 class="mb-2 font-display text-sm font-bold text-slate-700">Sources</h3>
-          <div class="space-y-2 text-sm">${s.sources.map((src) => `<div><a href="${esc(src.url)}" target="_blank" rel="noopener" class="font-medium text-indigo-600 underline decoration-dotted">${esc(src.name)}</a> <span class="text-xs text-slate-400">as of ${esc(fmtDate(src.asOf))}</span><div class="text-xs text-slate-500">${esc(src.note || '')}</div></div>`).join('')}
-          <div class="border-t border-slate-100 pt-2 text-xs text-slate-500">Risk-free: ${esc(s.riskFreeRate.source)}, as of ${esc(fmtDate(s.riskFreeRate.as_of))}. Updated ${esc(new Date(s.generated_at).toUTCString())}.</div></div></div>
-        <div class="card p-4"><div class="grid grid-cols-2 gap-4">
-          <div><h3 class="mb-2 font-display text-xs font-bold uppercase tracking-wide text-emerald-600">Live now</h3><ul class="space-y-1 text-xs text-slate-600">${live.map((x) => `<li class="flex gap-1.5"><span class="text-emerald-500">✓</span>${esc(x)}</li>`).join('')}</ul></div>
-          <div><h3 class="mb-2 font-display text-xs font-bold uppercase tracking-wide text-slate-400">Not included</h3><ul class="space-y-1 text-xs text-slate-400">${soon.map((x) => `<li class="flex gap-1.5"><span>◦</span>${esc(x)}</li>`).join('')}</ul></div>
-        </div></div>
-      </div>
-    </div>`;
 }
 
 function emptyState(icon, title, sub) {

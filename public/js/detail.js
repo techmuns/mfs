@@ -106,7 +106,7 @@ function rollRange(o, label) {
 function performanceTab(f) {
   const r = f.returns, periods = [['1M', r.m1], ['3M', r.m3], ['6M', r.m6], ['1Y', r.y1], ['3Y', r.y3], ['5Y', r.y5], ['10Y', r.y10], ['Since inception', r.si]];
   const b = f.benchmark || {};
-  const cmpRow = (label, vsC, exc, rat) => `<tr class="border-t border-slate-100"><td class="py-1.5 text-slate-500">${label}</td>
+  const cmpRow = (label, vsC, exc, rat) => `<tr><td class="py-1.5 text-slate-500">${label}</td>
     <td class="num py-1.5">${vsC && vsC.ratio != null ? `<span class="${vsC.ratio >= 1 ? 'v-pos' : 'v-neg'}">${vsFmt(vsC)}</span>` : '<span class="v-na">N/A</span>'}</td>
     <td class="num py-1.5">${exc != null ? `<span class="${exc >= 0 ? 'v-pos' : 'v-neg'}">${ppFmt(exc)}</span>` : '<span class="v-na">N/A</span>'}</td>
     <td class="num py-1.5">${rat != null ? num(rat, 2) + '×' : '<span class="v-na">N/A</span>'}</td></tr>`;
@@ -114,6 +114,7 @@ function performanceTab(f) {
     <section>
       <div class="mb-1.5 flex items-center justify-between"><h3 class="font-display text-sm font-bold text-slate-700">NAV growth vs benchmark</h3>
         <div class="inline-flex rounded-lg bg-slate-100 p-0.5 text-xs font-semibold">${RANGES.map(([l], i) => `<button data-range="${l}" class="pr-rng rounded-md px-2.5 py-1 ${i === 2 ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500'}">${l}</button>`).join('')}</div></div>
+      <div class="mb-2 text-xs text-slate-500">Both the fund and its benchmark start at 100 — the steeper line grew faster. The fund’s fee is already included in its NAV.</div>
       <div class="perf-chart h-64 w-full rounded-xl bg-slate-50 ring-1 ring-inset ring-slate-100"></div>
       <div class="perf-chart-msg mt-1 text-center text-[11px] text-slate-400">Loading live NAV…</div>
     </section>
@@ -123,8 +124,9 @@ function performanceTab(f) {
         <div class="mt-1 text-[11px] text-slate-400">Over 1 year = CAGR; shorter = absolute. Net of fees.</div></div>
       <div class="space-y-3">
         <div class="rounded-xl bg-white p-3 ring-1 ring-slate-100"><h3 class="mb-1 font-display text-sm font-bold text-slate-700">Vs peers &amp; benchmark</h3>
-          <table class="w-full text-sm"><thead><tr class="text-[11px] uppercase tracking-wide text-slate-400"><th class="text-left font-medium"> </th><th class="num text-right font-medium">vs peers</th><th class="num text-right font-medium">bmark excess</th><th class="num text-right font-medium">ratio</th></tr></thead>
+          <table class="w-full gridtbl text-sm"><thead><tr class="text-[11px] uppercase tracking-wide text-slate-400"><th class="text-left font-medium"> </th><th class="num text-right font-medium">vs peers</th><th class="num text-right font-medium">bmark excess</th><th class="num text-right font-medium">ratio</th></tr></thead>
           <tbody>${cmpRow('3Y', f.vsCategory.y3, b.excess ? b.excess.y3 : null, b.ratio ? b.ratio.y3 : null)}${cmpRow('5Y', f.vsCategory.y5, b.excess ? b.excess.y5 : null, b.ratio ? b.ratio.y5 : null)}${cmpRow('10Y', f.vsCategory.y10, b.excess ? b.excess.y10 : null, b.ratio ? b.ratio.y10 : null)}</tbody></table></div>
+        <div class="text-[11px] text-slate-400">Rolling returns = the worst, average and best annualised return across every 3Y / 5Y window the fund has lived through. A narrow spread means steadier results.</div>
         ${rollRange(f.rolling.y3, '3-year rolling return')}
         ${rollRange(f.rolling.y5, '5-year rolling return')}
       </div>
@@ -148,6 +150,7 @@ function riskTab(f) {
       ${riskMetric('Sortino', num(rk.sortino, 2) ?? 'N/A', 'Like Sharpe but only counts downside swings.', null)}
     </div>
     <section><h3 class="mb-1 font-display text-sm font-bold text-slate-700">Drawdown — how far below its peak it fell</h3>
+      <div class="mb-2 text-xs text-slate-500">0% means the fund is at an all-time high; −30% means it has fallen 30% from its last peak. Deeper, longer dips are a rougher ride.</div>
       <div class="dd-chart h-56 w-full rounded-xl bg-slate-50 ring-1 ring-inset ring-slate-100"></div>
       <div class="dd-chart-msg mt-1 text-center text-[11px] text-slate-400">Loading…</div></section>
     <p class="text-[11px] text-slate-400">Risk is measured over a ${rk.lookbackYears ? rk.lookbackYears.toFixed(1) : '3'}-year lookback. Research only — not investment advice.</p>

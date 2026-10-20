@@ -1,0 +1,14 @@
+# Node (there are no dependencies, but just in case)
+node_modules/
+npm-debug.log*
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
+
+# Local scratch
+*.log
+/tmp-*

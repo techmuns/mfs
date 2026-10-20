@@ -25,6 +25,8 @@ import { computeFundMetrics } from './lib/metrics.mjs';
 import { computeCategories, attachVsCategory } from './lib/categories.mjs';
 import { derivePeerGroup } from './lib/peergroup.mjs';
 import { enrichFunds } from './lib/enrich.mjs';
+import { computeScores } from './lib/score.mjs';
+import { computeAlertEvents, mergeAlerts } from './lib/alerts.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, '..');
@@ -56,23 +58,16 @@ function writeJson(name, obj) {
   return path;
 }
 
-// Prior committed funds.json, indexed by scheme code — used for fail-soft carry-forward of
-// enrichment fields when a source is down.
-function readPriorFunds() {
-  try { return new Map(JSON.parse(readFileSync(join(DATA_DIR, 'funds.json'), 'utf8')).map((f) => [f.schemeCode, f])); }
-  catch { return new Map(); }
+// Prior committed funds.json (array) — used for fail-soft enrichment carry-forward AND the
+// "what's new" alerts diff (old vs new). Returns [] on the first ever run.
+function readPriorFundsArray() {
+  try { return JSON.parse(readFileSync(join(DATA_DIR, 'funds.json'), 'utf8')); }
+  catch { return []; }
 }
 
-// Holdings summaries from the separately-built holdings.json (monthly workflow), if present.
-function readHoldingsSummaries() {
-  const m = new Map();
-  try {
-    const o = JSON.parse(readFileSync(join(DATA_DIR, 'holdings.json'), 'utf8'));
-    for (const [code, h] of Object.entries(o.funds || o)) {
-      m.set(Number(code), { top10Pct: h.top10Pct, largestPct: h.largestPct, numSecurities: h.numSecurities, topSector: h.topSector, month: h.month, available: true });
-    }
-  } catch { /* no holdings file yet */ }
-  return m;
+function readPriorAlerts() {
+  try { return JSON.parse(readFileSync(join(DATA_DIR, 'alerts.json'), 'utf8')); }
+  catch { return { events: [] }; }
 }
 
 async function main() {
@@ -147,9 +142,9 @@ async function main() {
 
   // 3) Enrichment: fees/AUM/manager/exit-load/riskometer (tigzig) + benchmark excess (NSE TRI)
   log('Enriching with disclosures + benchmark TRI ...');
-  const priorByCode = readPriorFunds();
+  const priorFunds = readPriorFundsArray();                       // "yesterday" — for carry-forward + alerts
+  const priorByCode = new Map(priorFunds.map((f) => [f.schemeCode, f]));
   const enrich = await enrichFunds(funds, priorByCode, log);
-  const holdingsSummaries = readHoldingsSummaries();
   for (const f of funds) {
     const e = enrich.byCode.get(f.schemeCode);
     f.benchmark = e.benchmark;
@@ -158,7 +153,6 @@ async function main() {
     f.manager = e.manager;
     f.exitLoad = e.exitLoad;
     f.riskometer = e.riskometer;
-    f.holdings = holdingsSummaries.get(f.schemeCode) || { available: false, reason: 'AMC disclosure not yet wired / unparsed layout' };
   }
   const benchPath = writeJson('benchmarks.json', enrich.benchmarksJson);
   log(`Benchmark TRI: ${enrich.indicesFetched.length} indices fetched${enrich.emptyIndices.length ? `, ${enrich.emptyIndices.length} empty: ${enrich.emptyIndices.join(', ')}` : ''}`);
@@ -167,6 +161,9 @@ async function main() {
   // 4) Categories + vs-category ---------------------------------------------
   const categories = computeCategories(funds, dataAsOf);
   attachVsCategory(funds, categories);
+
+  // 5) Composite score (percentile within peer group) -----------------------
+  computeScores(funds);
 
   // 4) Counts + write --------------------------------------------------------
   const counts = {
@@ -178,7 +175,7 @@ async function main() {
     failures: failures.length,
   };
 
-  // Phase-3A field coverage (how many of the funds carry each enriched field).
+  // Field coverage (how many of the funds carry each enriched field).
   const coverage = {
     total: funds.length,
     benchmark: enrich.coverage.benchmark,
@@ -187,7 +184,7 @@ async function main() {
     manager: enrich.coverage.manager,
     exitLoad: enrich.coverage.exitLoad,
     riskometer: enrich.coverage.riskometer,
-    holdings: funds.filter((f) => f.holdings && f.holdings.available).length,
+    score: funds.filter((f) => f.score && f.score.composite != null).length,
   };
 
   for (const f of funds) delete f._latestNavMs; // strip internal field
@@ -215,9 +212,17 @@ async function main() {
       'NAV "on/before" a date walks back to the nearest trading day — missing days are never interpolated. Insufficient history => null (N/A), never 0.',
       'Benchmark: Total Return Index (TRI) from NSE Indices. benchmark.basis="filed" uses the scheme\'s own filed benchmark; "basis"="category" means the filed benchmark is a non-NSE index (e.g. a BSE index) and a peer-group Nifty proxy was used (never a silent substitution). No sound mapping (e.g. Thematic: Other, International) => benchmark N/A with a reason. Excess = fund CAGR − benchmark CAGR over the same windows; returns are already net of fees so TER is not deducted again.',
       'Fees (TER), AUM, fund managers, exit load and riskometer are AMFI/SEBI disclosures via tigzig, each stamped with the disclosure as-of date; a field missing from the disclosure is null. If a source is down, the prior committed value is carried forward and marked stale:true.',
-      'Holdings/sectors are built by a separate monthly workflow from AMC portfolio disclosures; holdings.available=false means that AMC is not yet wired or its layout is unparsed.',
+      'Composite score (fund.score): each pillar is the fund\'s percentile within its peer group (Manager pillar is an absolute tenure mapping). The browser recombines pillars with adjustable weights; a pillar with no usable inputs is null and excluded. Research only — not investment advice.',
+      'alerts.json is the "what\'s new" feed: each build diffs the previous committed funds.json against the new data and records plain-English change events (deduped, newest first, ~90 days / 500 max).',
     ],
   };
+
+  // 6) "What's new" alerts: diff the previous committed funds.json against the new data.
+  const priorAlerts = readPriorAlerts();
+  const alertResult = computeAlertEvents(priorFunds, funds, status, new Set((priorAlerts.events || []).map((e) => e.id)));
+  const alertsOut = mergeAlerts(priorAlerts, alertResult, status.generated_at);
+  const alertsPath = writeJson('alerts.json', alertsOut);
+  log(`Alerts: ${alertResult.baseline ? 'baseline (first run)' : alertResult.events.length + ' new event(s)'}; ${alertsOut.count} in feed`);
 
   const fundsPath = writeJson('funds.json', funds);
   const catsPath = writeJson('categories.json', categories);
@@ -228,6 +233,7 @@ async function main() {
   log(`Wrote ${fundsPath} (${sizeKB(fundsPath)} KB)`);
   log(`Wrote ${catsPath} (${sizeKB(catsPath)} KB)`);
   log(`Wrote ${benchPath} (${sizeKB(benchPath)} KB)`);
+  log(`Wrote ${alertsPath} (${sizeKB(alertsPath)} KB)`);
   log(`Wrote ${statusPath} (${sizeKB(statusPath)} KB)`);
   log('');
   log(`Counts: ${JSON.stringify(counts)}`);

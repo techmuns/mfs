@@ -133,6 +133,55 @@ export function rollingRange(el, funds, n = 10) {
   }, true);
 }
 
+/** NAV growth rebased to 100, with the benchmark TRI overlaid on the same scale + legend. */
+export function navBenchmarkOverlay(el, fundSeries, benchSeries, fundLabel, benchLabel) {
+  const inst = chartOn(el); if (!inst) return;
+  const series = [{
+    name: fundLabel, type: 'line', showSymbol: false, smooth: true, data: fundSeries, itemStyle: { color: '#6366f1' },
+    lineStyle: { width: 2.5, color: '#6366f1' },
+    areaStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: 'rgba(99,102,241,0.22)' }, { offset: 1, color: 'rgba(99,102,241,0.01)' }] } },
+  }];
+  if (benchSeries && benchSeries.length) {
+    series.push({ name: benchLabel, type: 'line', showSymbol: false, smooth: true, data: benchSeries, itemStyle: { color: '#f59e0b' }, lineStyle: { width: 2, color: '#f59e0b', type: 'dashed' } });
+  }
+  inst.setOption({
+    legend: { top: 0, textStyle: { color: '#475569', fontSize: 11, fontFamily: 'Inter' }, icon: 'roundRect' },
+    grid: { left: 8, right: 14, top: 30, bottom: 24, containLabel: true },
+    tooltip: { trigger: 'axis', ...TT, valueFormatter: (v) => (v == null ? '–' : Math.round(v)) },
+    xAxis: { type: 'time', axisLabel: { ...AXIS_LABEL }, axisLine: { lineStyle: { color: '#e2e8f0' } } },
+    yAxis: { type: 'value', scale: true, name: 'Growth (start = 100)', nameTextStyle: { ...AXIS_LABEL }, nameGap: 14, axisLabel: { ...AXIS_LABEL }, splitLine: { lineStyle: { color: '#f1f5f9' } } },
+    series,
+  }, true);
+}
+
+/** Growth of ₹10,000: one rebased line per fund, with a legend + rich hover. */
+export function growth10k(el, seriesList) {
+  const inst = chartOn(el); if (!inst) return;
+  inst.setOption({
+    color: seriesList.map((s) => s.color),
+    legend: { type: 'scroll', top: 0, textStyle: { color: '#475569', fontSize: 11, fontFamily: 'Inter' }, icon: 'roundRect' },
+    grid: { left: 8, right: 16, top: 34, bottom: 24, containLabel: true },
+    tooltip: { trigger: 'axis', ...TT, valueFormatter: (v) => (v == null ? '–' : '₹' + Math.round(v).toLocaleString('en-IN')) },
+    xAxis: { type: 'time', axisLabel: { ...AXIS_LABEL }, axisLine: { lineStyle: { color: '#e2e8f0' } } },
+    yAxis: { type: 'value', scale: true, axisLabel: { ...AXIS_LABEL, formatter: (v) => '₹' + (v >= 1000 ? (v / 1000).toFixed(0) + 'k' : v) }, splitLine: { lineStyle: { color: '#f1f5f9' } } },
+    series: seriesList.map((s) => ({ name: s.name, type: 'line', showSymbol: false, smooth: true, data: s.data, lineStyle: { width: 2, color: s.color }, emphasis: { focus: 'series' } })),
+  }, true);
+}
+
+/** Underwater drawdown (NAV vs running peak) from a [[ts, nav]] series. */
+export function drawdownChart(el, navSeries) {
+  const inst = chartOn(el); if (!inst) return;
+  let peak = -Infinity;
+  const dd = navSeries.map(([t, v]) => { if (v > peak) peak = v; return [t, (v / peak - 1) * 100]; });
+  inst.setOption({
+    grid: { left: 8, right: 14, top: 12, bottom: 24, containLabel: true },
+    tooltip: { trigger: 'axis', ...TT, valueFormatter: (v) => (v == null ? '–' : v.toFixed(1) + '%') },
+    xAxis: { type: 'time', axisLabel: { ...AXIS_LABEL }, axisLine: { lineStyle: { color: '#e2e8f0' } } },
+    yAxis: { type: 'value', max: 0, axisLabel: { ...AXIS_LABEL, formatter: (v) => v + '%' }, splitLine: { lineStyle: { color: '#f1f5f9' } } },
+    series: [{ type: 'line', showSymbol: false, data: dd, lineStyle: { width: 1.5, color: '#f43f5e' }, areaStyle: { color: 'rgba(244,63,94,0.16)' } }],
+  }, true);
+}
+
 /** Live NAV growth line (area), from a [[ts, nav], ...] series. */
 export function navLine(el, series) {
   const inst = chartOn(el); if (!inst) return;

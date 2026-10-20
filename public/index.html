@@ -3,142 +3,137 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>MF Screener — Indian Equity Funds</title>
-  <meta name="description" content="A free, research-only screener for Indian equity mutual funds. Real returns, risk and category comparisons computed from official NAV history." />
+  <title>Mutual Fund Screener — Indian Equity</title>
+  <meta name="description" content="A free, colourful, research-only screener for Indian equity mutual funds: returns, risk, rolling consistency and peer-group comparisons computed from real NAV history." />
 
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap" rel="stylesheet" />
 
   <script src="https://cdn.tailwindcss.com/3.4.16"></script>
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
   <script>
-    tailwind.config = {
-      theme: {
-        extend: {
-          fontFamily: {
-            sans: ['Inter', 'system-ui', 'sans-serif'],
-            display: ['"Plus Jakarta Sans"', 'Inter', 'sans-serif'],
-          },
-        },
-      },
-    };
+    tailwind.config = { theme: { extend: { fontFamily: {
+      sans: ['Inter', 'system-ui', 'sans-serif'],
+      display: ['"Plus Jakarta Sans"', 'Inter', 'sans-serif'],
+    } } } };
   </script>
   <style>
     body {
       background:
-        radial-gradient(1200px 600px at 15% -10%, #eef2ff 0%, transparent 60%),
-        radial-gradient(1000px 520px at 100% -5%, #faf5ff 0%, transparent 55%),
-        radial-gradient(900px 500px at 50% 110%, #ecfeff 0%, transparent 55%),
+        radial-gradient(1200px 600px at 12% -12%, #eef2ff 0%, transparent 60%),
+        radial-gradient(1000px 520px at 100% -8%, #faf5ff 0%, transparent 55%),
+        radial-gradient(900px 500px at 50% 112%, #ecfeff 0%, transparent 55%),
         #f8fafc;
       background-attachment: fixed;
     }
-    .tnum { font-variant-numeric: tabular-nums; }
-    /* All numeric cells align right and use tabular figures for clean columns. */
-    td.num, th.num { font-variant-numeric: tabular-nums; text-align: right; }
-    th.sortable { cursor: pointer; user-select: none; }
-    th.sortable:hover { color: #4f46e5; }
-    .sort-caret::after { content: '↕'; opacity: .35; margin-left: .25rem; font-size: .75em; }
-    .sort-asc::after { content: '↑'; opacity: 1; margin-left: .25rem; font-size: .75em; color: #4f46e5; }
-    .sort-desc::after { content: '↓'; opacity: 1; margin-left: .25rem; font-size: .75em; color: #4f46e5; }
-    /* Thin, tasteful scrollbar for the table on desktop. */
-    .table-scroll::-webkit-scrollbar { height: 10px; }
-    .table-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 9999px; }
+    .tnum, td.num, th.num { font-variant-numeric: tabular-nums; }
+    td.num, th.num { text-align: right; }
 
-    /* Semantic value classes (defined here so colour never depends on the Tailwind
-       JIT catching dynamically-inserted class names). */
-    .v-pos  { color: #059669; }            /* emerald — good  */
-    .v-neg  { color: #e11d48; }            /* rose    — weak  */
-    .v-zero { color: #64748b; }            /* slate   — flat  */
-    .v-na   { color: #cbd5e1; }            /* faint   — N/A   */
-    .v-dim  { color: #cbd5e1; }            /* coming-soon placeholder */
-    .v-strong { font-weight: 600; }
-    .pill   { display:inline-block; padding:.125rem .5rem; border-radius:9999px; font-size:.6875rem; font-weight:600; white-space:nowrap; }
-    .badge  { display:inline-flex; align-items:center; gap:.25rem; padding:.0625rem .375rem; border-radius:.5rem; font-weight:600; font-size:.6875rem; white-space:nowrap; }
-    .badge-up   { background:#ecfdf5; color:#047857; }
-    .badge-down { background:#fff1f2; color:#be123c; }
-    .badge-flat { background:#f1f5f9; color:#475569; }
-    tbody tr:hover { background:#f8fafc; }
+    /* cards & inputs */
+    .card { background:#fff; border-radius:1rem; box-shadow:0 1px 2px rgba(2,6,23,.04),0 2px 8px rgba(2,6,23,.05); outline:1px solid rgba(226,232,240,.7); }
+    .inp { width:100%; border-radius:.75rem; border:0; background:#fff; padding:.5rem .75rem; font-size:.875rem; color:#334155; box-shadow:inset 0 0 0 1px #e2e8f0; }
+    .inp:focus { outline:2px solid #6366f1; outline-offset:0; }
+    .lbl { display:block; margin-bottom:.35rem; font-size:.6875rem; font-weight:600; text-transform:uppercase; letter-spacing:.04em; color:#64748b; }
+    .range { width:100%; accent-color:#6366f1; cursor:pointer; }
+
+    /* toggles & switches */
+    .toggle-off,.toggle-on { padding:.375rem .75rem; border-radius:9999px; font-size:.75rem; font-weight:600; cursor:pointer; border:0; }
+    .toggle-off { background:#f1f5f9; color:#64748b; }
+    .toggle-on { background:#eef2ff; color:#4f46e5; box-shadow:inset 0 0 0 1px #c7d2fe; }
+    .switch { display:inline-flex; width:30px; height:17px; border-radius:9999px; background:#cbd5e1; vertical-align:middle; padding:2px; transition:background .15s; }
+    .switch-on { background:#6366f1; }
+    .switch .knob { display:block; width:13px; height:13px; border-radius:50%; background:#fff; transition:transform .15s; }
+    .switch-on .knob { transform:translateX(13px); }
+
+    /* value colours */
+    .v-pos{color:#059669}.v-neg{color:#e11d48}.v-zero{color:#64748b}.v-na{color:#cbd5e1}.v-dim{color:#cbd5e1}.v-strong{font-weight:600}
+    .pill{display:inline-block;padding:.125rem .5rem;border-radius:9999px;font-size:.6875rem;font-weight:600;white-space:nowrap}
+    .qmark{display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;border-radius:50%;background:#e2e8f0;color:#64748b;font-size:9px;font-weight:700;cursor:help}
+
+    /* table */
+    .table-scroll::-webkit-scrollbar{height:10px}
+    .table-scroll::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:9999px}
+    th.sortable{cursor:pointer;user-select:none}
+    th.sortable:hover{color:#4f46e5}
+    .sort-caret::after{content:'↕';opacity:.35;margin-left:.2rem;font-size:.7em}
+    .sort-asc::after{content:'↑';margin-left:.2rem;font-size:.7em;color:#4f46e5}
+    .sort-desc::after{content:'↓';margin-left:.2rem;font-size:.7em;color:#4f46e5}
+
+    /* tabs */
+    .tabbtn{display:inline-flex;align-items:center;gap:.4rem;padding:.5rem .9rem;border-radius:.75rem;font-size:.875rem;font-weight:600;color:#64748b;cursor:pointer;border:0;background:transparent}
+    .tabbtn:hover{color:#4f46e5}
+    .tabbtn-on{background:#fff;color:#4f46e5;box-shadow:0 1px 2px rgba(2,6,23,.06);outline:1px solid rgba(226,232,240,.8)}
+
+    /* drill slide-in */
+    .drill-panel{transform:translateX(100%);transition:transform .22s cubic-bezier(.4,0,.2,1)}
+    .drill-open{transform:translateX(0)}
+
+    /* shimmer */
+    .shimmer{background:linear-gradient(90deg,#f1f5f9 25%,#e2e8f0 37%,#f1f5f9 63%);background-size:400% 100%;animation:sh 1.4s ease infinite}
+    @keyframes sh{0%{background-position:100% 50%}100%{background-position:0 50%}}
   </style>
 </head>
-<body class="font-sans text-slate-800 antialiased min-h-screen">
-  <div class="mx-auto max-w-[1400px] px-4 sm:px-6 py-6 sm:py-10">
+<body class="min-h-screen font-sans text-slate-800 antialiased">
 
-    <!-- Header ------------------------------------------------------------ -->
-    <header class="mb-6">
-      <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
-        <div class="flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-400 text-white shadow-sm ring-1 ring-white/40">
-          <span class="font-display text-lg font-extrabold">₹</span>
+  <!-- loading -->
+  <div id="app-loading" class="grid min-h-screen place-items-center">
+    <div class="text-center">
+      <div class="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-4 border-indigo-200 border-t-indigo-600"></div>
+      <div class="font-display text-sm font-semibold text-slate-500">Loading fund data…</div>
+    </div>
+  </div>
+
+  <div id="app-shell" class="hidden">
+    <!-- sticky header -->
+    <header class="sticky top-0 z-30 border-b border-slate-200/70 bg-white/80 backdrop-blur-lg">
+      <div class="mx-auto max-w-[1500px] px-4 sm:px-6">
+        <div class="flex flex-wrap items-center gap-3 py-3">
+          <div class="flex items-center gap-2.5">
+            <div class="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-400 text-white shadow-sm">
+              <span class="font-display text-base font-extrabold">₹</span></div>
+            <div>
+              <h1 class="font-display text-lg font-extrabold leading-none tracking-tight text-slate-900">Mutual Fund Screener</h1>
+              <div class="text-[11px] text-slate-400">Indian equity · Direct · Growth</div>
+            </div>
+          </div>
+          <span id="live-chip" class="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-600 ring-1 ring-inset ring-emerald-200 tnum"></span>
+
+          <div class="relative ml-auto w-full sm:w-80">
+            <input id="global-search" type="search" placeholder="Search any fund…" autocomplete="off"
+              class="inp !pl-9" />
+            <svg viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2" class="pointer-events-none absolute left-3 top-2.5 h-4 w-4"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+            <div id="search-drop" class="absolute left-0 right-0 z-40 mt-1 hidden max-h-96 overflow-y-auto rounded-xl bg-white py-1 shadow-xl ring-1 ring-slate-200"></div>
+          </div>
+          <button id="btn-sources" class="rounded-lg bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-200">Sources</button>
         </div>
-        <h1 class="font-display text-2xl sm:text-3xl font-extrabold tracking-tight text-slate-900">
-          MF Screener
-        </h1>
-        <span class="rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-semibold text-indigo-600 ring-1 ring-inset ring-indigo-200">
-          Indian Equity Funds · Direct · Growth
-        </span>
-        <span id="updated-chip" class="ml-auto rounded-full bg-white/70 px-3 py-1 text-xs font-medium text-slate-500 ring-1 ring-inset ring-slate-200 tnum">
-          Loading…
-        </span>
+
+        <!-- tabs -->
+        <nav class="flex gap-1 pb-2">
+          <button data-tabbtn="screener" class="tabbtn tabbtn-on">Screener</button>
+          <button data-tabbtn="compare" class="tabbtn">Compare</button>
+          <button data-tabbtn="shortlist" class="tabbtn">Shortlist
+            <span id="shortlist-badge" class="hidden rounded-full bg-amber-500 px-1.5 text-[10px] font-bold text-white tnum">0</span></button>
+          <button data-tabbtn="status" class="tabbtn">Data Status</button>
+        </nav>
       </div>
-      <p class="mt-3 max-w-3xl text-sm text-slate-600">
-        A free, <span class="font-semibold text-slate-700">research-only</span> dashboard. Pick a category and compare funds on real
-        returns, risk and how each stacks up against its peers. Not investment advice; no transactions.
-      </p>
-      <p id="sources-line" class="mt-1 text-xs text-slate-400">Sources: …</p>
     </header>
 
-    <!-- Controls ---------------------------------------------------------- -->
-    <section class="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,320px)_minmax(0,1fr)_auto]">
-      <label class="block">
-        <span class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">Category</span>
-        <select id="category-select"
-          class="w-full rounded-xl border-0 bg-white px-3.5 py-2.5 text-sm font-medium text-slate-700 shadow-sm ring-1 ring-inset ring-slate-200 focus:ring-2 focus:ring-indigo-500">
-          <option value="">All categories</option>
-        </select>
-      </label>
-      <label class="block">
-        <span class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">Search</span>
-        <input id="search-input" type="search" placeholder="Fund name or AMC…" autocomplete="off"
-          class="w-full rounded-xl border-0 bg-white px-3.5 py-2.5 text-sm text-slate-700 shadow-sm ring-1 ring-inset ring-slate-200 placeholder:text-slate-400 focus:ring-2 focus:ring-indigo-500" />
-      </label>
-      <div class="flex items-end">
-        <span id="result-count" class="rounded-xl bg-white px-3.5 py-2.5 text-sm font-semibold text-slate-600 shadow-sm ring-1 ring-inset ring-slate-200 tnum">—</span>
-      </div>
-    </section>
+    <main class="mx-auto max-w-[1500px] px-4 py-5 sm:px-6">
+      <div data-tabpanel="screener" id="tab-screener"></div>
+      <div data-tabpanel="compare" id="tab-compare" class="hidden"></div>
+      <div data-tabpanel="shortlist" id="tab-shortlist" class="hidden"></div>
+      <div data-tabpanel="status" id="tab-status" class="hidden"></div>
+    </main>
 
-    <!-- Table ------------------------------------------------------------- -->
-    <section class="rounded-2xl bg-white p-1 shadow-sm ring-1 ring-slate-200/70">
-      <div class="table-scroll overflow-x-auto rounded-xl">
-        <table class="w-full border-collapse text-sm">
-          <thead>
-            <tr id="table-head" class="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500">
-              <!-- headers injected by app.js -->
-            </tr>
-          </thead>
-          <tbody id="table-body" class="divide-y divide-slate-100">
-            <tr><td class="p-8 text-center text-slate-400" colspan="14">Loading funds…</td></tr>
-          </tbody>
-        </table>
-      </div>
-    </section>
-    <p class="mt-2 px-1 text-xs text-slate-400">
-      Returns over 1 year are compound annual growth rates (CAGR); shorter periods are absolute.
-      <span class="font-medium text-slate-500">N/A</span> means the fund lacks the history for that window.
-      <span class="font-medium text-slate-500">AUM</span> and <span class="font-medium text-slate-500">TER</span> arrive in a later phase.
-    </p>
-
-    <!-- Data status ------------------------------------------------------- -->
-    <section id="status-card" class="mt-6 rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200/70">
-      <h2 class="font-display text-sm font-bold uppercase tracking-wide text-slate-500">Data status</h2>
-      <div id="status-grid" class="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-        <!-- stat tiles injected by app.js -->
-      </div>
-      <p id="status-note" class="mt-4 text-xs leading-relaxed text-slate-400"></p>
-    </section>
-
-    <footer class="mt-8 pb-4 text-center text-xs text-slate-400">
-      Built for research and education only · Data © AMFI &amp; MFAPI.in · Figures carry their source &amp; as-of date
+    <footer class="mx-auto max-w-[1500px] px-4 pb-8 pt-2 text-center text-xs text-slate-400 sm:px-6">
+      Research &amp; education only — not investment advice · Data © AMFI &amp; MFAPI.in · Every figure carries its source &amp; as-of date
     </footer>
   </div>
+
+  <div id="drill-root"></div>
+  <div id="modal-root"></div>
 
   <script type="module" src="./js/app.js"></script>
 </body>

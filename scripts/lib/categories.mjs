@@ -1,10 +1,14 @@
-// categories.mjs — category-level means/medians and each fund's "vs category" comparison.
+// categories.mjs — peer-group means/medians and each fund's "vs category" comparison.
 //
-// Policy (documented and surfaced in status.json): averages are taken over the
-// Direct-Growth funds in the Phase-1 universe ONLY, so every distinct portfolio counts
-// exactly once (no Direct/Regular double-counting). A fund contributes to a given metric
-// only when it has enough history to have a non-null value for it, so the sample size `n`
-// differs per metric and is reported per metric in `sampleSize`.
+// Aggregation and every fund's vs-category comparison are keyed by PEER GROUP (see
+// peergroup.mjs): diversified categories are their own peer group, Sectoral/Thematic funds are
+// split into "Thematic: <Theme>" groups so the average compares like with like.
+//
+// Policy (documented and surfaced in status.json): averages are taken over the Direct-Growth
+// funds in the universe ONLY, so every distinct portfolio counts exactly once (no
+// Direct/Regular double-counting). A fund contributes to a given metric only when it has
+// enough history to have a non-null value for it, so the sample size `n` differs per metric
+// and is reported per metric in `sampleSize`.
 
 // Metrics aggregated per category.
 export const CATEGORY_METRICS = ['y1', 'y3', 'y5', 'y10', 'volatility', 'sharpe', 'rolling3yAvg'];
@@ -33,15 +37,15 @@ function stats(values) {
 }
 
 /**
- * Build the per-category aggregate object:
- *   { [category]: { n, mean:{metric->val}, median:{metric->val}, sampleSize:{metric->n}, asOf } }
- * `n` is the number of funds in the category; `sampleSize[metric]` is how many had history.
+ * Build the per-peer-group aggregate object:
+ *   { [peerGroup]: { n, mean:{metric->val}, median:{metric->val}, sampleSize:{metric->n}, asOf } }
+ * `n` is the number of funds in the peer group; `sampleSize[metric]` is how many had history.
  */
 export function computeCategories(funds, asOf) {
   const groups = new Map();
   for (const f of funds) {
-    if (!groups.has(f.category)) groups.set(f.category, []);
-    groups.get(f.category).push(f);
+    if (!groups.has(f.peerGroup)) groups.set(f.peerGroup, []);
+    groups.get(f.peerGroup).push(f);
   }
 
   const out = {};
@@ -66,10 +70,10 @@ function vs(fundVal, categoryMean) {
   };
 }
 
-/** Attach `vsCategory` (ratio + percentage-point gap vs the category MEAN) for 3Y/5Y/10Y. */
+/** Attach `vsCategory` (ratio + percentage-point gap vs the PEER-GROUP MEAN) for 3Y/5Y/10Y. */
 export function attachVsCategory(funds, categories) {
   for (const f of funds) {
-    const mean = categories[f.category] ? categories[f.category].mean : null;
+    const mean = categories[f.peerGroup] ? categories[f.peerGroup].mean : null;
     f.vsCategory = {
       y3: vs(f.returns.y3, mean ? mean.y3 : null),
       y5: vs(f.returns.y5, mean ? mean.y5 : null),

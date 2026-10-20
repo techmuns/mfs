@@ -23,6 +23,7 @@ import { AMFI_URL, fetchAmfiNavAll, parseAmfiEquityUniverse } from './lib/amfi.m
 import { fetchScheme, toNavSeries } from './lib/mfapi.mjs';
 import { computeFundMetrics } from './lib/metrics.mjs';
 import { computeCategories, attachVsCategory } from './lib/categories.mjs';
+import { derivePeerGroup } from './lib/peergroup.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, '..');
@@ -87,6 +88,7 @@ async function main() {
         name: u.name,
         amc: u.amc || (raw.meta && raw.meta.fund_house) || null,
         category: u.category,
+        peerGroup: derivePeerGroup(u.category, u.name, u.amc), // Sectoral/Thematic -> "Thematic: <Theme>"
         plan: u.plan,
         option: u.option,
         isin: u.isin || (raw.meta && raw.meta.isin_growth) || null,
@@ -133,6 +135,7 @@ async function main() {
     with3y: funds.filter((f) => f.history.has3y).length,
     with5y: funds.filter((f) => f.history.has5y).length,
     with10y: funds.filter((f) => f.history.has10y).length,
+    peerGroups: Object.keys(categories).length,
     failures: failures.length,
   };
 
@@ -148,7 +151,8 @@ async function main() {
     riskFreeRate: rf,
     counts,
     notes: [
-      'Phase 1 universe: open-ended EQUITY schemes, Direct plan, Growth option only.',
+      'Universe: open-ended EQUITY schemes, Direct plan, Growth option only.',
+      'Averages and vs-category are computed per PEER GROUP: diversified categories stay as-is, while Sectoral/Thematic funds are split into "Thematic: <Theme>" groups (theme inferred from the scheme name) so like is compared with like. Each fund keeps its raw AMFI category too.',
       'Category averages are over Direct-Growth funds only (each portfolio counted once).',
       'Returns are decimal fractions (0.12 = 12%). Periods <= 12 months are absolute, longer periods are CAGR (365.25-day year).',
       'Risk metrics use a 3-year lookback (full history if younger, see risk.lookbackYears); volatility annualised with sqrt(252).',

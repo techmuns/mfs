@@ -1,262 +1,206 @@
-// app.js — the Phase-1 screener page (vanilla ES module, no framework, no build step).
-//
-// It reads the three pre-computed JSON files written by the nightly pipeline and renders a
-// sortable, filterable table plus a data-status card. The browser does ZERO number
-// crunching — every figure is already computed in funds.json / categories.json.
+// app.js — entry point. Loads the three JSON files once, builds the header + tabs, and wires
+// the Screener, Compare (Phase-3 placeholder), Shortlist and Data Status tabs together.
 
-const DATA = {
-  funds: './data/funds.json',
-  categories: './data/categories.json',
-  status: './data/status.json',
-};
+import { state, subscribe, emit, removeShortlist, clearShortlist } from './state.js';
+import { esc, pct, num, fmtDate, groupColor, orderGroups, ICON, GROUP_COLOR } from './meta.js';
+import { mountScreener, render as renderScreener } from './screener.js';
+import { setDrillHandler, setCompareHandler, setChangeHandler, selected } from './table.js';
+import { openDrill, setDrillChangeHandler } from './drill.js';
 
-// Distinct, tasteful colour per category (hex -> inline styles, so no JIT dependency).
-const CAT_COLOR = {
-  'Flexi Cap': '#6366f1', 'Large Cap': '#0ea5e9', 'Large & Mid Cap': '#06b6d4',
-  'Mid Cap': '#8b5cf6', 'Small Cap': '#d946ef', 'Multi Cap': '#3b82f6',
-  'ELSS': '#10b981', 'Focused': '#f59e0b', 'Value/Contra': '#f43f5e',
-  'Dividend Yield': '#14b8a6', 'Sectoral/Thematic': '#a855f7',
-};
+const DATA = { funds: './data/funds.json', categories: './data/categories.json', status: './data/status.json' };
+let compareCodes = [];
 
-const state = {
-  funds: [],
-  categories: {},
-  status: null,
-  filterCategory: '',
-  search: '',
-  sort: { key: 'y3', dir: 'desc' }, // default: best 3Y first
-};
-
-// ---- formatting helpers ----------------------------------------------------
-const pct = (x, dp = 1) => (x == null ? null : (x * 100).toFixed(dp) + '%');
-const signed = (x, dp = 1) => (x == null ? null : (x >= 0 ? '+' : '') + (x * 100).toFixed(dp));
-const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-
-function fmtDate(iso) {
-  if (!iso) return '—';
-  const [y, m, d] = iso.split('-').map(Number);
-  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-  return `${d} ${months[m - 1]} ${y}`;
+async function loadJSON(url) {
+  const r = await fetch(url, { cache: 'no-cache' });
+  if (!r.ok) throw new Error(`${url} → HTTP ${r.status}`);
+  return r.json();
 }
 
-// Colour class for a return-style value: emerald up / rose down / slate flat.
-const signClass = (x) => (x == null ? 'v-na' : x > 0.00005 ? 'v-pos' : x < -0.00005 ? 'v-neg' : 'v-zero');
-
-// ---- column definitions ----------------------------------------------------
-// type drives both the cell renderer and the sort comparator.
-const COLUMNS = [
-  { key: 'name', label: 'Fund', type: 'text', get: (f) => f.name },
-  { key: 'amc', label: 'AMC', type: 'text', get: (f) => f.amc || '' },
-  { key: 'category', label: 'Category', type: 'cat', get: (f) => f.category },
-  { key: 'aum', label: 'AUM', type: 'soon' },
-  { key: 'ter', label: 'TER', type: 'soon' },
-  { key: 'y1', label: '1Y', type: 'ret', get: (f) => f.returns.y1 },
-  { key: 'y3', label: '3Y', type: 'ret', get: (f) => f.returns.y3 },
-  { key: 'y5', label: '5Y', type: 'ret', get: (f) => f.returns.y5 },
-  { key: 'y10', label: '10Y', type: 'ret', get: (f) => f.returns.y10 },
-  { key: 'roll3y', label: '3Y Roll', type: 'ret', title: 'Average of 3-year rolling returns (monthly window starts)', get: (f) => (f.rolling.y3 ? f.rolling.y3.avg : null) },
-  { key: 'vs5y', label: '5Y vs Cat', type: 'vs', title: 'This fund\'s 5Y CAGR vs its category mean (× and percentage-point gap)', get: (f) => f.vsCategory.y5, sortGet: (f) => f.vsCategory.y5 && f.vsCategory.y5.ppGap },
-  { key: 'sharpe', label: 'Sharpe', type: 'sharpe', title: '3Y risk-adjusted return (higher is better)', get: (f) => f.risk.sharpe },
-  { key: 'vol', label: 'Volatility', type: 'volpct', title: 'Annualised volatility over a 3Y lookback (lower is calmer)', get: (f) => f.risk.volatility },
-  { key: 'maxdd', label: 'Max DD', type: 'ddpct', title: 'Largest peak-to-trough fall over the 3Y lookback', get: (f) => f.risk.maxDrawdown },
-];
-
-// ---- cell renderers --------------------------------------------------------
-function renderCell(col, f) {
-  switch (col.type) {
-    case 'text':
-      return `<td class="px-3 py-2.5 ${col.key === 'name' ? 'font-semibold text-slate-800' : 'text-slate-500'}">${esc(col.get(f))}</td>`;
-    case 'cat': {
-      const c = CAT_COLOR[f.category] || '#64748b';
-      return `<td class="px-3 py-2.5"><span class="pill" style="background:${c}1a;color:${c}">${esc(f.category)}</span></td>`;
-    }
-    case 'soon':
-      return `<td class="num px-3 py-2.5"><span class="v-dim" title="coming soon">—</span></td>`;
-    case 'ret': {
-      const v = col.get(f);
-      return `<td class="num px-3 py-2.5 ${signClass(v)} v-strong">${v == null ? '<span class="v-na">N/A</span>' : esc(pct(v))}</td>`;
-    }
-    case 'volpct': {
-      const v = col.get(f);
-      return `<td class="num px-3 py-2.5 text-slate-600">${v == null ? '<span class="v-na">N/A</span>' : esc(pct(v))}</td>`;
-    }
-    case 'ddpct': {
-      const v = col.get(f);
-      return `<td class="num px-3 py-2.5 ${v == null ? '' : 'v-neg'}">${v == null ? '<span class="v-na">N/A</span>' : esc(pct(v))}</td>`;
-    }
-    case 'sharpe': {
-      const v = col.get(f);
-      const cls = v == null ? 'v-na' : v >= 1 ? 'v-pos' : v >= 0 ? 'v-zero' : 'v-neg';
-      return `<td class="num px-3 py-2.5 ${cls} v-strong">${v == null ? '<span class="v-na">N/A</span>' : esc(v.toFixed(2))}</td>`;
-    }
-    case 'vs': {
-      const vs = col.get(f);
-      if (!vs || vs.ratio == null) return `<td class="num px-3 py-2.5"><span class="v-na">N/A</span></td>`;
-      const cls = vs.ppGap > 0.00005 ? 'badge-up' : vs.ppGap < -0.00005 ? 'badge-down' : 'badge-flat';
-      return `<td class="num px-3 py-2.5"><span class="badge ${cls}">${vs.ratio.toFixed(2)}× <span style="opacity:.8">${esc(signed(vs.ppGap))}pp</span></span></td>`;
-    }
-    default:
-      return '<td class="px-3 py-2.5"></td>';
-  }
-}
-
-// ---- sorting ---------------------------------------------------------------
-function comparator(col, dir) {
-  const mul = dir === 'asc' ? 1 : -1;
-  const getter = col.sortGet || col.get;
-  if (col.type === 'text' || col.type === 'cat') {
-    return (a, b) => mul * String(getter(a)).localeCompare(String(getter(b)));
-  }
-  // Numeric: nulls always sort to the bottom regardless of direction.
-  return (a, b) => {
-    const va = getter(a), vb = getter(b);
-    const na = va == null || !isFinite(va), nb = vb == null || !isFinite(vb);
-    if (na && nb) return 0;
-    if (na) return 1;
-    if (nb) return -1;
-    return mul * (va - vb);
-  };
-}
-
-// ---- rendering -------------------------------------------------------------
-function renderHead() {
-  const head = document.getElementById('table-head');
-  head.innerHTML = COLUMNS.map((col) => {
-    const sortable = col.type !== 'soon';
-    const isActive = state.sort.key === col.key;
-    const caret = !sortable ? '' : isActive ? (state.sort.dir === 'asc' ? 'sort-asc' : 'sort-desc') : 'sort-caret';
-    const align = (col.type === 'text' || col.type === 'cat') ? '' : 'num';
-    const cls = `px-3 py-2.5 ${align} ${sortable ? 'sortable' : ''} ${caret} ${isActive ? 'text-indigo-600' : ''}`;
-    const title = col.title ? ` title="${esc(col.title)}"` : '';
-    return `<th class="${cls}" data-key="${col.key}"${title}>${esc(col.label)}</th>`;
-  }).join('');
-
-  head.querySelectorAll('th.sortable').forEach((th) => {
-    th.addEventListener('click', () => {
-      const key = th.dataset.key;
-      const col = COLUMNS.find((c) => c.key === key);
-      if (state.sort.key === key) {
-        state.sort.dir = state.sort.dir === 'asc' ? 'desc' : 'asc';
-      } else {
-        state.sort.key = key;
-        // text defaults ascending (A–Z); numbers default descending (best first).
-        state.sort.dir = (col.type === 'text' || col.type === 'cat') ? 'asc' : 'desc';
-      }
-      renderHead();
-      renderBody();
-    });
+function setTab(tab) {
+  state.activeTab = tab;
+  document.querySelectorAll('[data-tabbtn]').forEach((b) => {
+    const on = b.dataset.tabbtn === tab;
+    b.className = `tabbtn ${on ? 'tabbtn-on' : ''}`;
   });
+  document.querySelectorAll('[data-tabpanel]').forEach((p) => p.classList.toggle('hidden', p.dataset.tabpanel !== tab));
+  if (tab === 'screener') renderScreener();
+  if (tab === 'shortlist') renderShortlist();
+  if (tab === 'status') renderStatus();
+  if (tab === 'compare') renderCompare();
 }
 
-function visibleFunds() {
-  const q = state.search.trim().toLowerCase();
-  let rows = state.funds.filter((f) => {
-    if (state.filterCategory && f.category !== state.filterCategory) return false;
-    if (q && !(f.name.toLowerCase().includes(q) || (f.amc || '').toLowerCase().includes(q))) return false;
-    return true;
+// ---- header ----------------------------------------------------------------
+function renderHeader() {
+  document.getElementById('live-chip').innerHTML =
+    `<span class="mr-1 inline-block h-2 w-2 animate-pulse rounded-full bg-emerald-400"></span>Live · Updated ${fmtDate(state.status.data_as_of)}`;
+
+  // Global typeahead
+  const input = document.getElementById('global-search');
+  const drop = document.getElementById('search-drop');
+  let t;
+  input.addEventListener('input', () => {
+    clearTimeout(t);
+    t = setTimeout(() => {
+      const q = input.value.trim().toLowerCase();
+      if (!q) { drop.classList.add('hidden'); return; }
+      const hits = state.funds.filter((f) => f.name.toLowerCase().includes(q) || (f.amc || '').toLowerCase().includes(q)).slice(0, 8);
+      drop.innerHTML = hits.length ? hits.map((f) => `<button data-code="${f.schemeCode}" class="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-slate-50">
+          <span class="h-2 w-2 shrink-0 rounded-full" style="background:${groupColor(f.peerGroup)}"></span>
+          <span class="min-w-0 flex-1"><span class="block truncate text-sm font-medium text-slate-700">${esc(f.name)}</span>
+          <span class="block truncate text-[11px] text-slate-400">${esc(f.peerGroup)} · ${esc(f.amc || '')}</span></span>
+          <span class="tnum text-xs font-semibold ${f.returns.y5 >= 0 ? 'v-pos' : 'v-neg'}">${pct(f.returns.y5) ?? ''}</span></button>`).join('')
+        : '<div class="px-3 py-3 text-sm text-slate-400">No matching fund.</div>';
+      drop.classList.remove('hidden');
+    }, 150);
   });
-  const col = COLUMNS.find((c) => c.key === state.sort.key) || COLUMNS[0];
-  rows.sort(comparator(col, state.sort.dir));
-  return rows;
+  drop.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-code]'); if (!b) return;
+    const f = state.funds.find((x) => x.schemeCode === +b.dataset.code);
+    if (f) { openDrill(f); drop.classList.add('hidden'); input.value = ''; }
+  });
+  document.addEventListener('click', (e) => { if (!drop.contains(e.target) && e.target !== input) drop.classList.add('hidden'); });
+
+  // Sources modal
+  document.getElementById('btn-sources').addEventListener('click', openSources);
 }
 
-function renderBody() {
-  const rows = visibleFunds();
-  const body = document.getElementById('table-body');
-  document.getElementById('result-count').textContent =
-    `${rows.length} fund${rows.length === 1 ? '' : 's'}`;
+function openSources() {
+  const s = state.status;
+  const modal = document.getElementById('modal-root');
+  modal.innerHTML = `<div class="modal-backdrop fixed inset-0 z-[60] grid place-items-center bg-slate-900/40 p-4">
+    <div class="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl">
+      <div class="mb-3 flex items-center justify-between"><h2 class="font-display text-lg font-bold text-slate-800">Data sources</h2>
+        <button class="modal-x rounded-lg p-1 text-slate-400 hover:bg-slate-100">${ICON.close}</button></div>
+      <div class="space-y-3 text-sm">
+        ${s.sources.map((src) => `<div class="rounded-xl bg-slate-50 p-3">
+          <div class="font-semibold text-slate-700">${esc(src.name)}</div>
+          <a href="${esc(src.url)}" target="_blank" rel="noopener" class="break-all text-xs text-indigo-500 underline decoration-dotted">${esc(src.url)}</a>
+          <div class="mt-1 text-xs text-slate-500">${esc(src.note || '')} · as of ${esc(fmtDate(src.asOf))}</div></div>`).join('')}
+        <div class="rounded-xl bg-slate-50 p-3"><div class="font-semibold text-slate-700">Risk-free rate</div>
+          <div class="text-xs text-slate-500">${(s.riskFreeRate.annual_rate * 100).toFixed(2)}% — ${esc(s.riskFreeRate.source)}, as of ${esc(fmtDate(s.riskFreeRate.as_of))}</div></div>
+      </div>
+      <p class="mt-3 text-xs text-slate-400">Research only — not investment advice. Figures are computed from real NAV history; insufficient history shows N/A.</p>
+    </div></div>`;
+  const close = () => (modal.innerHTML = '');
+  modal.querySelector('.modal-x').addEventListener('click', close);
+  modal.querySelector('.modal-backdrop').addEventListener('click', (e) => { if (e.target === e.currentTarget) close(); });
+}
 
-  if (rows.length === 0) {
-    body.innerHTML = `<tr><td class="p-8 text-center text-slate-400" colspan="${COLUMNS.length}">No funds match your filters.</td></tr>`;
+// ---- Shortlist tab ---------------------------------------------------------
+function renderShortlist() {
+  const el = document.getElementById('tab-shortlist');
+  const funds = state.funds.filter((f) => state.shortlist.has(f.schemeCode));
+  if (!funds.length) {
+    el.innerHTML = emptyState(ICON.star, 'Your shortlist is empty', 'Tick funds in the Screener and hit “Add to Shortlist”, or ☆ a fund from its detail panel. Your picks are saved in this browser.');
     return;
   }
-  // Build the whole tbody as one HTML string — fast even for ~600 rows.
-  body.innerHTML = rows.map((f) => `<tr>${COLUMNS.map((c) => renderCell(c, f)).join('')}</tr>`).join('');
+  const row = (f) => `<tr class="cursor-pointer hover:bg-slate-50" data-code="${f.schemeCode}">
+    <td class="px-3 py-2"><div class="font-semibold text-slate-800">${esc(f.name)}</div><div class="text-[11px] text-slate-400">${esc(f.amc || '')}</div></td>
+    <td class="px-3 py-2"><span class="pill" style="background:${groupColor(f.peerGroup)}1a;color:${groupColor(f.peerGroup)}">${esc(f.peerGroup)}</span></td>
+    ${numTd(f.returns.y5)}${numTd(f.returns.y10)}${numTd(f.rolling.y3 ? f.rolling.y3.avg : null)}
+    <td class="num px-3 py-2 tnum">${num(f.risk.sharpe, 2) ?? 'N/A'}</td>${numTd(f.risk.volatility)}${numTd(f.risk.maxDrawdown)}
+    <td class="px-3 py-2 text-right"><button data-rm="${f.schemeCode}" class="rounded-lg bg-rose-50 px-2 py-1 text-xs font-semibold text-rose-600 hover:bg-rose-100">Remove</button></td></tr>`;
+  el.innerHTML = `<div class="card overflow-hidden">
+    <div class="flex items-center gap-2 border-b border-slate-100 p-3">
+      <h2 class="flex items-center gap-2 font-display text-sm font-bold text-slate-700">${ICON.star}Shortlist <span class="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-600">${funds.length}</span></h2>
+      <button id="sl-clear" class="ml-auto rounded-lg bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-200">Clear all</button></div>
+    <div class="table-scroll overflow-x-auto"><table class="w-full text-sm"><thead>
+      <tr class="border-b border-slate-200 bg-slate-50/60 text-xs font-semibold uppercase tracking-wide text-slate-500">
+      <th class="px-3 py-2 text-left">Fund</th><th class="px-3 py-2 text-left">Category</th>
+      <th class="num px-3 py-2 text-right">5Y</th><th class="num px-3 py-2 text-right">10Y</th><th class="num px-3 py-2 text-right">3Y Roll</th>
+      <th class="num px-3 py-2 text-right">Sharpe</th><th class="num px-3 py-2 text-right">Vol</th><th class="num px-3 py-2 text-right">Max DD</th><th></th></tr></thead>
+      <tbody class="divide-y divide-slate-100">${funds.map(row).join('')}</tbody></table></div></div>`;
+  el.querySelector('#sl-clear').addEventListener('click', () => { clearShortlist(); renderShortlist(); emit(); });
+  el.querySelectorAll('[data-rm]').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); removeShortlist(+b.dataset.rm); renderShortlist(); emit(); }));
+  el.querySelectorAll('tr[data-code]').forEach((tr) => tr.addEventListener('click', () => { const f = state.funds.find((x) => x.schemeCode === +tr.dataset.code); if (f) openDrill(f); }));
+}
+const numTd = (v) => `<td class="num px-3 py-2 tnum ${v == null ? 'v-na' : v >= 0 ? 'v-pos' : 'v-neg'}">${pct(v) ?? 'N/A'}</td>`;
+
+// ---- Compare tab (Phase-3 placeholder with a teaser) -----------------------
+function renderCompare() {
+  const el = document.getElementById('tab-compare');
+  const funds = state.funds.filter((f) => compareCodes.includes(f.schemeCode));
+  const teaser = funds.length ? `<div class="mt-4 card p-4"><div class="mb-2 text-sm font-semibold text-slate-600">${funds.length} fund(s) selected</div>
+      <div class="flex flex-wrap gap-2">${funds.map((f) => `<span class="pill" style="background:${groupColor(f.peerGroup)}1a;color:${groupColor(f.peerGroup)}">${esc(f.name)}</span>`).join('')}</div></div>` : '';
+  el.innerHTML = `<div class="card p-8 text-center">
+    <div class="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-500 text-white">${ICON.compare}</div>
+    <h2 class="font-display text-xl font-extrabold text-slate-800">Side-by-side Compare</h2>
+    <p class="mx-auto mt-1 max-w-md text-sm text-slate-500">Compare up to 5 funds across returns, risk, rolling consistency, benchmark, holdings and fees — arriving in <b>Phase 3</b>. You can already shortlist and drill into any fund.</p>
+    </div>${teaser}`;
 }
 
-function renderCategoryOptions() {
-  const sel = document.getElementById('category-select');
-  const cats = Object.keys(state.categories).sort();
-  for (const cat of cats) {
-    const opt = document.createElement('option');
-    opt.value = cat;
-    opt.textContent = `${cat} (${state.categories[cat].n})`;
-    sel.appendChild(opt);
-  }
-}
-
-function tile(label, value, accent = '#4f46e5', sub = '') {
-  return `<div class="rounded-xl bg-slate-50 p-3 ring-1 ring-inset ring-slate-100">
-    <div class="text-xs font-medium text-slate-400">${esc(label)}</div>
-    <div class="mt-0.5 font-display text-xl font-extrabold tnum" style="color:${accent}">${esc(value)}</div>
-    ${sub ? `<div class="mt-0.5 text-[11px] text-slate-400">${esc(sub)}</div>` : ''}
-  </div>`;
-}
-
+// ---- Data Status tab -------------------------------------------------------
 function renderStatus() {
-  const s = state.status;
-  const c = s.counts;
-  const rf = s.riskFreeRate;
-  document.getElementById('updated-chip').textContent = `Updated ${fmtDate(s.data_as_of)}`;
-  document.getElementById('sources-line').innerHTML =
-    s.sources.map((src) => `<a href="${esc(src.url)}" target="_blank" rel="noopener" class="underline decoration-dotted hover:text-indigo-500">${esc(src.name)}</a> <span class="text-slate-300">(as of ${esc(fmtDate(src.asOf))})</span>`).join(' · ');
-
-  document.getElementById('status-grid').innerHTML = [
-    tile('Equity funds', String(c.equityDirectGrowth), '#4f46e5', 'Direct · Growth'),
-    tile('≥ 3Y history', String(c.with3y), '#0ea5e9'),
-    tile('≥ 5Y history', String(c.with5y), '#8b5cf6'),
-    tile('≥ 10Y history', String(c.with10y), '#d946ef'),
-    tile('Categories', String(Object.keys(state.categories).length), '#10b981'),
-    tile('Risk-free rate', pct(rf.annual_rate, 2), '#f59e0b', 'Sharpe input'),
-  ].join('');
-
-  document.getElementById('status-note').innerHTML =
-    `Risk-free rate ${esc(pct(rf.annual_rate, 2))} — ${esc(rf.source)}, as of ${esc(fmtDate(rf.as_of))}. ` +
-    `${c.failures} fund${c.failures === 1 ? '' : 's'} skipped this run. ` +
-    `Generated ${esc(new Date(s.generated_at).toUTCString())}. ` +
-    `Category averages cover Direct-Growth funds only; figures with insufficient history show N/A.`;
+  const el = document.getElementById('tab-status');
+  const s = state.status, c = s.counts;
+  const tile = (label, value, accent, sub) => `<div class="card p-4"><div class="text-xs font-medium text-slate-400">${esc(label)}</div>
+    <div class="mt-1 font-display text-2xl font-extrabold tnum" style="color:${accent}">${esc(value)}</div>${sub ? `<div class="text-[11px] text-slate-400">${esc(sub)}</div>` : ''}</div>`;
+  const groups = orderGroups(Object.keys(state.categories));
+  const maxN = Math.max(...groups.map((g) => state.categories[g].n));
+  const bars = groups.map((g) => { const n = state.categories[g].n, col = GROUP_COLOR[g] || '#64748b';
+    return `<div class="flex items-center gap-2"><span class="w-44 shrink-0 truncate text-xs text-slate-500" title="${esc(g)}">${esc(g)}</span>
+      <div class="h-4 flex-1 rounded-full bg-slate-100"><div class="h-4 rounded-full" style="width:${Math.round(n / maxN * 100)}%;background:${col}"></div></div>
+      <span class="w-8 text-right text-xs font-semibold tnum text-slate-600">${n}</span></div>`; }).join('');
+  const live = ['Returns (1M–10Y, since inception)', 'Rolling 3Y/5Y returns', 'Risk: volatility, Sharpe, Sortino, max drawdown', 'Peer-group averages & vs-category', 'Live NAV history chart (per fund)'];
+  const soon = ['AUM (fund size) & TER (fees)', 'Benchmark & excess return', 'Portfolio holdings & sector mix', 'Fund manager & tenure', 'Side-by-side compare (up to 5)'];
+  el.innerHTML = `
+    <div class="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      ${tile('Funds', c.equityDirectGrowth, '#4f46e5', 'equity · Direct · Growth')}
+      ${tile('≥ 5Y history', c.with5y, '#8b5cf6', `${c.with3y} have ≥ 3Y · ${c.with10y} have ≥ 10Y`)}
+      ${tile('Peer groups', c.peerGroups ?? Object.keys(state.categories).length, '#10b981', 'incl. thematic splits')}
+      ${tile('Risk-free rate', (s.riskFreeRate.annual_rate * 100).toFixed(2) + '%', '#f59e0b', 'used in Sharpe')}
+    </div>
+    <div class="mt-4 grid gap-4 lg:grid-cols-2">
+      <div class="card p-4"><h3 class="mb-3 font-display text-sm font-bold text-slate-700">Funds per peer group</h3><div class="space-y-1.5">${bars}</div></div>
+      <div class="space-y-4">
+        <div class="card p-4"><h3 class="mb-2 font-display text-sm font-bold text-slate-700">Sources</h3>
+          <div class="space-y-2 text-sm">${s.sources.map((src) => `<div><a href="${esc(src.url)}" target="_blank" rel="noopener" class="font-medium text-indigo-600 underline decoration-dotted">${esc(src.name)}</a> <span class="text-xs text-slate-400">as of ${esc(fmtDate(src.asOf))}</span><div class="text-xs text-slate-500">${esc(src.note || '')}</div></div>`).join('')}
+          <div class="border-t border-slate-100 pt-2 text-xs text-slate-500">Risk-free: ${esc(s.riskFreeRate.source)}, as of ${esc(fmtDate(s.riskFreeRate.as_of))}. Updated ${esc(new Date(s.generated_at).toUTCString())}.</div></div></div>
+        <div class="card p-4"><div class="grid grid-cols-2 gap-4">
+          <div><h3 class="mb-2 font-display text-xs font-bold uppercase tracking-wide text-emerald-600">Live now</h3><ul class="space-y-1 text-xs text-slate-600">${live.map((x) => `<li class="flex gap-1.5"><span class="text-emerald-500">✓</span>${esc(x)}</li>`).join('')}</ul></div>
+          <div><h3 class="mb-2 font-display text-xs font-bold uppercase tracking-wide text-indigo-500">Coming in Phase 3</h3><ul class="space-y-1 text-xs text-slate-400">${soon.map((x) => `<li class="flex gap-1.5"><span>◦</span>${esc(x)}</li>`).join('')}</ul></div>
+        </div></div>
+      </div>
+    </div>`;
 }
 
-function wireControls() {
-  document.getElementById('category-select').addEventListener('change', (e) => {
-    state.filterCategory = e.target.value;
-    renderBody();
-  });
-  let t;
-  document.getElementById('search-input').addEventListener('input', (e) => {
-    clearTimeout(t);
-    t = setTimeout(() => { state.search = e.target.value; renderBody(); }, 120);
-  });
+function emptyState(icon, title, sub) {
+  return `<div class="card grid place-items-center p-12 text-center"><div class="mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-slate-400">${icon}</div>
+    <h2 class="font-display text-lg font-bold text-slate-700">${esc(title)}</h2><p class="mx-auto mt-1 max-w-sm text-sm text-slate-500">${esc(sub)}</p></div>`;
 }
 
-function showError(msg) {
-  document.getElementById('table-body').innerHTML =
-    `<tr><td class="p-8 text-center text-rose-500" colspan="${COLUMNS.length}">${esc(msg)}</td></tr>`;
-}
-
+// ---- boot ------------------------------------------------------------------
 async function init() {
   try {
-    const [funds, categories, status] = await Promise.all(
-      Object.values(DATA).map(async (u) => {
-        const r = await fetch(u, { cache: 'no-cache' });
-        if (!r.ok) throw new Error(`${u} → HTTP ${r.status}`);
-        return r.json();
-      }),
-    );
-    state.funds = funds;
-    state.categories = categories;
-    state.status = status;
+    const [funds, categories, status] = await Promise.all([loadJSON(DATA.funds), loadJSON(DATA.categories), loadJSON(DATA.status)]);
+    state.funds = funds; state.categories = categories; state.status = status;
 
-    renderCategoryOptions();
-    renderHead();
-    renderBody();
-    renderStatus();
-    wireControls();
+    document.getElementById('app-loading').remove();
+    document.getElementById('app-shell').classList.remove('hidden');
+
+    renderHeader();
+    setDrillHandler(openDrill);
+    setCompareHandler((codes) => { compareCodes = codes; setTab('compare'); });
+    setChangeHandler(() => { updateShortlistBadge(); if (state.activeTab === 'shortlist') renderShortlist(); });
+    setDrillChangeHandler(() => { updateShortlistBadge(); if (state.activeTab === 'shortlist') renderShortlist(); if (state.activeTab === 'screener') renderScreener(); });
+
+    document.querySelectorAll('[data-tabbtn]').forEach((b) => b.addEventListener('click', () => setTab(b.dataset.tabbtn)));
+    subscribe(updateShortlistBadge);
+
+    mountScreener(document.getElementById('tab-screener'));
+    updateShortlistBadge();
+    setTab('screener');
   } catch (err) {
     console.error(err);
-    showError('Could not load fund data. Please try again shortly.');
-    document.getElementById('updated-chip').textContent = 'Data unavailable';
+    const l = document.getElementById('app-loading');
+    if (l) l.innerHTML = `<div class="text-center"><div class="text-rose-500">Couldn’t load fund data.</div><div class="mt-1 text-sm text-slate-400">Please refresh in a moment.</div></div>`;
   }
+}
+function updateShortlistBadge() {
+  const b = document.getElementById('shortlist-badge');
+  if (!b) return;
+  const n = state.shortlist.size;
+  b.textContent = n; b.classList.toggle('hidden', n === 0);
 }
 
 init();

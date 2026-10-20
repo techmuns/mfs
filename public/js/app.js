@@ -1,14 +1,20 @@
-// app.js — entry point. Loads the three JSON files once, builds the header + tabs, and wires
-// the Screener, Compare (Phase-3 placeholder), Shortlist and Data Status tabs together.
+// app.js — entry point. Loads the committed JSON once, builds the header + tabs + 🔔 bell, and
+// wires the Screener, Fund Details, Compare, Shortlist and Data Status tabs together.
 
 import { state, subscribe, emit, removeShortlist, clearShortlist } from './state.js';
 import { esc, pct, num, fmtDate, groupColor, orderGroups, ICON, GROUP_COLOR } from './meta.js';
 import { mountScreener, render as renderScreener } from './screener.js';
-import { setDrillHandler, setCompareHandler, setChangeHandler, selected } from './table.js';
-import { openDrill, setDrillChangeHandler } from './drill.js';
+import { setDrillHandler, setCompareHandler, setChangeHandler } from './table.js';
+import { openDetail, renderDetail, setDetailChangeHandler } from './detail.js';
+import { renderCompare, setCompareDetailHandler } from './compare.js';
+import { updateBadge as updateAlertsBadge, openBell, setAlertsDetailHandler } from './alerts.js';
+import { scoreOf, scoreColor } from './score.js';
 
-const DATA = { funds: './data/funds.json', categories: './data/categories.json', status: './data/status.json' };
-let compareCodes = [];
+const DATA = {
+  funds: './data/funds.json', categories: './data/categories.json', status: './data/status.json',
+  benchmarks: './data/benchmarks.json', alerts: './data/alerts.json',
+};
+let detailFund = null; // fund shown in the Fund Details tab
 
 async function loadJSON(url) {
   const r = await fetch(url, { cache: 'no-cache' });
@@ -24,9 +30,15 @@ function setTab(tab) {
   });
   document.querySelectorAll('[data-tabpanel]').forEach((p) => p.classList.toggle('hidden', p.dataset.tabpanel !== tab));
   if (tab === 'screener') renderScreener();
+  if (tab === 'detail') renderFundDetails();
   if (tab === 'shortlist') renderShortlist();
   if (tab === 'status') renderStatus();
-  if (tab === 'compare') renderCompare();
+  if (tab === 'compare') renderCompare(document.getElementById('tab-compare'));
+}
+
+// Open a fund's detail: in the slide-in (default) or routed to the Fund Details tab.
+function showFund(f, inTab) {
+  if (inTab) { detailFund = f; setTab('detail'); } else openDetail(f);
 }
 
 // ---- header ----------------------------------------------------------------
@@ -56,7 +68,7 @@ function renderHeader() {
   drop.addEventListener('click', (e) => {
     const b = e.target.closest('[data-code]'); if (!b) return;
     const f = state.funds.find((x) => x.schemeCode === +b.dataset.code);
-    if (f) { openDrill(f); drop.classList.add('hidden'); input.value = ''; }
+    if (f) { openDetail(f); drop.classList.add('hidden'); input.value = ''; }
   });
   document.addEventListener('click', (e) => { if (!drop.contains(e.target) && e.target !== input) drop.classList.add('hidden'); });
 
@@ -112,21 +124,36 @@ function renderShortlist() {
       <tbody class="divide-y divide-slate-100">${funds.map(row).join('')}</tbody></table></div></div>`;
   el.querySelector('#sl-clear').addEventListener('click', () => { clearShortlist(); renderShortlist(); emit(); });
   el.querySelectorAll('[data-rm]').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); removeShortlist(+b.dataset.rm); renderShortlist(); emit(); }));
-  el.querySelectorAll('tr[data-code]').forEach((tr) => tr.addEventListener('click', () => { const f = state.funds.find((x) => x.schemeCode === +tr.dataset.code); if (f) openDrill(f); }));
+  el.querySelectorAll('tr[data-code]').forEach((tr) => tr.addEventListener('click', () => { const f = state.funds.find((x) => x.schemeCode === +tr.dataset.code); if (f) openDetail(f); }));
 }
 const numTd = (v) => `<td class="num px-3 py-2 tnum ${v == null ? 'v-na' : v >= 0 ? 'v-pos' : 'v-neg'}">${pct(v) ?? 'N/A'}</td>`;
 
-// ---- Compare tab (Phase-3 placeholder with a teaser) -----------------------
-function renderCompare() {
-  const el = document.getElementById('tab-compare');
-  const funds = state.funds.filter((f) => compareCodes.includes(f.schemeCode));
-  const teaser = funds.length ? `<div class="mt-4 card p-4"><div class="mb-2 text-sm font-semibold text-slate-600">${funds.length} fund(s) selected</div>
-      <div class="flex flex-wrap gap-2">${funds.map((f) => `<span class="pill" style="background:${groupColor(f.peerGroup)}1a;color:${groupColor(f.peerGroup)}">${esc(f.name)}</span>`).join('')}</div></div>` : '';
-  el.innerHTML = `<div class="card p-8 text-center">
-    <div class="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-500 text-white">${ICON.compare}</div>
-    <h2 class="font-display text-xl font-extrabold text-slate-800">Side-by-side Compare</h2>
-    <p class="mx-auto mt-1 max-w-md text-sm text-slate-500">Compare up to 5 funds across returns, risk, rolling consistency, benchmark, holdings and fees — arriving in <b>Phase 3</b>. You can already shortlist and drill into any fund.</p>
-    </div>${teaser}`;
+// ---- Fund Details tab (inline detail view + a fund picker) ------------------
+function renderFundDetails() {
+  const el = document.getElementById('tab-detail');
+  const f = detailFund || state.funds.find((x) => x.score && x.score.composite != null) || state.funds[0];
+  detailFund = f;
+  el.innerHTML = `<div class="mb-3 flex flex-wrap items-center gap-2">
+      <label class="text-xs font-semibold uppercase tracking-wide text-slate-500">Fund</label>
+      <input id="fd-search" type="search" placeholder="Pick or search a fund…" value="${esc(f ? f.name : '')}" class="inp !w-80 !py-2 text-sm" autocomplete="off">
+      <div id="fd-drop" class="relative"></div>
+    </div>
+    <div id="fd-view" class="card overflow-hidden"></div>`;
+  if (f) renderDetail(el.querySelector('#fd-view'), f, { slide: false });
+
+  const inp = el.querySelector('#fd-search');
+  const drop = document.createElement('div');
+  drop.className = 'absolute z-30 mt-1 hidden max-h-80 w-80 overflow-y-auto rounded-xl bg-white py-1 shadow-xl ring-1 ring-slate-200';
+  el.querySelector('#fd-drop').appendChild(drop);
+  inp.addEventListener('focus', () => inp.select());
+  inp.addEventListener('input', () => {
+    const q = inp.value.trim().toLowerCase();
+    const hits = (q ? state.funds.filter((x) => x.name.toLowerCase().includes(q) || (x.amc || '').toLowerCase().includes(q)) : state.funds).slice(0, 10);
+    drop.innerHTML = hits.map((x) => `<button data-code="${x.schemeCode}" class="flex w-full items-center justify-between gap-2 px-3 py-2 text-left hover:bg-slate-50"><span class="min-w-0"><span class="block truncate text-sm font-medium text-slate-700">${esc(x.name)}</span><span class="block truncate text-[11px] text-slate-400">${esc(x.peerGroup)}</span></span><span class="tnum text-xs font-bold" style="color:${scoreColor(scoreOf(x))}">${scoreOf(x) == null ? '' : Math.round(scoreOf(x))}</span></button>`).join('');
+    drop.classList.remove('hidden');
+  });
+  drop.addEventListener('click', (e) => { const b = e.target.closest('[data-code]'); if (!b) return; detailFund = state.funds.find((x) => x.schemeCode === +b.dataset.code); drop.classList.add('hidden'); renderFundDetails(); });
+  document.addEventListener('click', (e) => { if (!drop.contains(e.target) && e.target !== inp) drop.classList.add('hidden'); });
 }
 
 // ---- Data Status tab -------------------------------------------------------
@@ -141,22 +168,22 @@ function renderStatus() {
     return `<div class="flex items-center gap-2"><span class="w-44 shrink-0 truncate text-xs text-slate-500" title="${esc(g)}">${esc(g)}</span>
       <div class="h-4 flex-1 rounded-full bg-slate-100"><div class="h-4 rounded-full" style="width:${Math.round(n / maxN * 100)}%;background:${col}"></div></div>
       <span class="w-8 text-right text-xs font-semibold tnum text-slate-600">${n}</span></div>`; }).join('');
-  const live = ['Returns (1M–10Y, since inception)', 'Rolling 3Y/5Y returns', 'Risk: volatility, Sharpe, Sortino, max drawdown', 'Peer-group averages & vs-category', 'Benchmark excess vs Total Return Index', 'Fees (TER direct/regular), AUM, riskometer', 'Fund managers & tenure, exit load', 'Live NAV history chart (per fund)'];
-  const soon = ['Portfolio holdings & sector mix (rolling out AMC by AMC)', 'Full fund-detail page', 'Side-by-side compare (up to 5)', 'Composite score', '🔔 Alerts'];
+  const live = ['Returns (1M–10Y, since inception) & 3Y/5Y rolling', 'Risk: volatility, Sharpe, Sortino, max drawdown', 'Peer-group averages & vs-category', 'Benchmark excess vs Total Return Index (NAV+TRI overlay)', 'Fees (TER), AUM, riskometer, managers, exit load', 'Explainable composite score (re-weightable)', 'Fund-detail page, compare up to 5, 🔔 what’s-new alerts'];
+  const soon = ['Portfolio holdings & sector mix (out of scope for now)'];
 
   const cov = s.coverage;
   const covCard = cov ? (() => {
     const row = (label, n, grad) => `<div class="flex items-center gap-2"><span class="w-36 shrink-0 text-xs text-slate-500">${label}</span>
       <div class="h-4 flex-1 rounded-full bg-slate-100"><div class="h-4 rounded-full" style="width:${Math.round(n / cov.total * 100)}%;background:${grad}"></div></div>
       <span class="w-20 text-right text-xs font-semibold tnum text-slate-600">${n}/${cov.total}</span></div>`;
-    return `<div class="card p-4"><h3 class="mb-3 font-display text-sm font-bold text-slate-700">Phase 3A field coverage</h3><div class="space-y-1.5">
+    return `<div class="card p-4"><h3 class="mb-3 font-display text-sm font-bold text-slate-700">Field coverage</h3><div class="space-y-1.5">
       ${row('Benchmark (TRI) excess', cov.benchmark, 'linear-gradient(90deg,#6366f1,#4f46e5)')}
+      ${row('Composite score', cov.score ?? 0, 'linear-gradient(90deg,#8b5cf6,#6d28d9)')}
       ${row('Expense ratio (TER)', cov.ter, 'linear-gradient(90deg,#a855f7,#7c3aed)')}
       ${row('Fund size (AUM)', cov.aum, 'linear-gradient(90deg,#38bdf8,#0ea5e9)')}
       ${row('Fund manager', cov.manager, 'linear-gradient(90deg,#10b981,#059669)')}
       ${row('Exit load', cov.exitLoad, 'linear-gradient(90deg,#f59e0b,#d97706)')}
       ${row('Riskometer', cov.riskometer, 'linear-gradient(90deg,#14b8a6,#0d9488)')}
-      ${row('Holdings & sectors', cov.holdings, 'linear-gradient(90deg,#f472b6,#db2777)')}
     </div><p class="mt-2 text-[11px] text-slate-400">Gaps are genuine non-disclosures or (for benchmark) funds with no mappable Nifty TRI — shown as N/A with a reason, never faked.</p></div>`;
   })() : '';
   el.innerHTML = `
@@ -175,7 +202,7 @@ function renderStatus() {
           <div class="border-t border-slate-100 pt-2 text-xs text-slate-500">Risk-free: ${esc(s.riskFreeRate.source)}, as of ${esc(fmtDate(s.riskFreeRate.as_of))}. Updated ${esc(new Date(s.generated_at).toUTCString())}.</div></div></div>
         <div class="card p-4"><div class="grid grid-cols-2 gap-4">
           <div><h3 class="mb-2 font-display text-xs font-bold uppercase tracking-wide text-emerald-600">Live now</h3><ul class="space-y-1 text-xs text-slate-600">${live.map((x) => `<li class="flex gap-1.5"><span class="text-emerald-500">✓</span>${esc(x)}</li>`).join('')}</ul></div>
-          <div><h3 class="mb-2 font-display text-xs font-bold uppercase tracking-wide text-indigo-500">Coming in Phase 3</h3><ul class="space-y-1 text-xs text-slate-400">${soon.map((x) => `<li class="flex gap-1.5"><span>◦</span>${esc(x)}</li>`).join('')}</ul></div>
+          <div><h3 class="mb-2 font-display text-xs font-bold uppercase tracking-wide text-slate-400">Not included</h3><ul class="space-y-1 text-xs text-slate-400">${soon.map((x) => `<li class="flex gap-1.5"><span>◦</span>${esc(x)}</li>`).join('')}</ul></div>
         </div></div>
       </div>
     </div>`;
@@ -189,23 +216,32 @@ function emptyState(icon, title, sub) {
 // ---- boot ------------------------------------------------------------------
 async function init() {
   try {
-    const [funds, categories, status] = await Promise.all([loadJSON(DATA.funds), loadJSON(DATA.categories), loadJSON(DATA.status)]);
+    const [funds, categories, status, benchmarks, alerts] = await Promise.all([
+      loadJSON(DATA.funds), loadJSON(DATA.categories), loadJSON(DATA.status),
+      loadJSON(DATA.benchmarks).catch(() => ({})), loadJSON(DATA.alerts).catch(() => ({ events: [] })),
+    ]);
     state.funds = funds; state.categories = categories; state.status = status;
+    state.benchmarks = benchmarks; state.alerts = alerts;
 
     document.getElementById('app-loading').remove();
     document.getElementById('app-shell').classList.remove('hidden');
 
     renderHeader();
-    setDrillHandler(openDrill);
-    setCompareHandler((codes) => { compareCodes = codes; setTab('compare'); });
+    setDrillHandler(openDetail);
+    setCompareHandler((codes) => { state.compareFunds = codes.slice(0, 5); setTab('compare'); });
     setChangeHandler(() => { updateShortlistBadge(); if (state.activeTab === 'shortlist') renderShortlist(); });
-    setDrillChangeHandler(() => { updateShortlistBadge(); if (state.activeTab === 'shortlist') renderShortlist(); if (state.activeTab === 'screener') renderScreener(); });
+    // Re-weighting the score or shortlisting from a detail view refreshes the open tab.
+    setDetailChangeHandler(() => { updateShortlistBadge(); if (state.activeTab === 'screener') renderScreener(); if (state.activeTab === 'shortlist') renderShortlist(); if (state.activeTab === 'compare') renderCompare(document.getElementById('tab-compare')); });
+    setCompareDetailHandler(openDetail);
+    setAlertsDetailHandler(openDetail);
 
     document.querySelectorAll('[data-tabbtn]').forEach((b) => b.addEventListener('click', () => setTab(b.dataset.tabbtn)));
+    document.getElementById('btn-bell').addEventListener('click', (e) => { e.stopPropagation(); openBell(); });
     subscribe(updateShortlistBadge);
 
     mountScreener(document.getElementById('tab-screener'));
     updateShortlistBadge();
+    updateAlertsBadge();
     setTab('screener');
   } catch (err) {
     console.error(err);

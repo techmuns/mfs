@@ -237,7 +237,8 @@ function renderFunnel() {
     const w = Math.round((s.count / maxN) * 100);
     const barBg = s.enabled ? 'linear-gradient(90deg,#818cf8,#a855f7)' : '#e2e8f0';
     const extra = s.key === 'sharpe' ? funnelSlider('fn-sharpe', 0, 30, 1, Math.round(state.funnel.sharpe.min * 10))
-      : s.key === 'maxdd' ? funnelSlider('fn-maxdd', -50, 0, 1, Math.round(state.funnel.maxdd.min * 100)) : '';
+      : s.key === 'maxdd' ? funnelSlider('fn-maxdd', -50, 0, 1, Math.round(state.funnel.maxdd.min * 100))
+      : s.key === 'minScore' ? funnelSlider('fn-minscore', 0, 100, 5, state.funnel.minScore.min) : '';
     return `<div class="flex items-center gap-3 px-3 py-1">
       <button data-fn="${s.key}" class="w-48 shrink-0 text-left ${s.enabled ? '' : 'opacity-60'}">
         <span class="switch ${s.enabled ? 'switch-on' : ''}"><span class="knob"></span></span>
@@ -260,6 +261,7 @@ function renderFunnel() {
   }));
   const sh = root.querySelector('#fn-sharpe'); if (sh) sh.addEventListener('input', (e) => { state.funnel.sharpe.min = +e.target.value / 10; scheduleRender(); });
   const md = root.querySelector('#fn-maxdd'); if (md) md.addEventListener('input', (e) => { state.funnel.maxdd.min = +e.target.value / 100; scheduleRender(); });
+  const ms = root.querySelector('#fn-minscore'); if (ms) ms.addEventListener('input', (e) => { state.funnel.minScore.min = +e.target.value; scheduleRender(); });
 }
 function funnelSlider(id, min, max, step, val) {
   return `<input id="${id}" type="range" min="${min}" max="${max}" step="${step}" value="${val}" class="range !w-24" title="drag to adjust">`;

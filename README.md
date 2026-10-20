@@ -36,11 +36,11 @@ The browser never crunches NAV history; it only loads three small JSON files.
 
 | File | Contents |
 | --- | --- |
-| `public/data/funds.json` | One object per fund: returns, rolling, risk, vs-category, history, **benchmark excess, costs (TER), AUM, manager, exit load, riskometer, holdings summary**. |
+| `public/data/funds.json` | One object per fund: returns, rolling, risk, vs-category, history, benchmark excess, costs (TER), AUM, manager, exit load, riskometer, **explainable composite score**. |
 | `public/data/categories.json` | Per peer group: mean + median + sample size per metric (incl. benchmark excess, median TER). |
-| `public/data/benchmarks.json` | Per index: the Total Return Index (TRI) series (monthly), for detail/compare charts. |
-| `public/data/holdings.json` | Per fund: full holdings + sector allocation (built by the monthly workflow; bulky, kept out of funds.json). |
-| `public/data/status.json` | Run metadata: generated-at, sources + as-of, risk-free rate, fund counts, **field coverage**. |
+| `public/data/benchmarks.json` | Per index: the Total Return Index (TRI) series (monthly), for the detail/compare charts. |
+| `public/data/alerts.json` | The "what's new" feed: plain-English change events (newest-first, deduped, ~90 days). |
+| `public/data/status.json` | Run metadata: generated-at, sources + as-of, risk-free rate, fund counts, field coverage. |
 
 ---
 
@@ -64,9 +64,9 @@ The browser never crunches NAV history; it only loads three small JSON files.
 5. **[tigzig](https://api.tigzig.com/)** (Phase 3A) — re-serves official AMFI/SEBI disclosures:
    TER, AUM, fund managers, exit load, riskometer, filed benchmark. One bulk gzipped CSV joined
    on scheme code. NAV returns are already net of fees, so TER is **not** deducted again.
-6. **AMC monthly portfolio disclosures** (Phase 3A, SEBI-mandated) — holdings + sectors, built by
-   the monthly workflow. A zero-dependency `.xlsx` reader + standard-layout parser are in
-   `scripts/lib/{xlsx,holdings}.mjs`; per-AMC current-file retrieval is wired AMC by AMC.
+All derived figures (returns, risk, benchmark excess, the composite score, the alerts diff) are
+computed in CI; the browser only reads the committed JSON, plus one live per-fund NAV fetch from
+MFAPI for the growth/drawdown charts. Portfolio holdings are intentionally out of scope.
 
 ## Phase-1 universe
 
@@ -109,10 +109,9 @@ commits the changed `public/data/*.json` with a resilient push. Benchmark/disclo
 **fail-soft**: if a source is down, the prior committed value is carried forward and marked
 `stale:true`, so the run never wipes good data.
 
-`.github/workflows/holdings.yml` runs **monthly** (8th, when SEBI portfolio disclosures post) to
-rebuild `holdings.json` and re-run the main build so funds pick up holdings summaries. It reads the
-optional Bedrock secrets (`BEDROCK_API_KEY`, `AWS_REGION`, `BEDROCK_MODEL_IDS`) when present, to
-parse odd/PDF-only AMC layouts; without them it falls back to deterministic parsing.
+Each daily build also diffs the previous committed `funds.json` against the new data and appends
+plain-English change events to `alerts.json` (new/closed funds, manager/benchmark/TER/riskometer/
+exit-load changes, big NAV or AUM moves, history milestones) — the 🔔 bell reads this feed.
 
 Each commit triggers a Cloudflare Pages deploy — so the live site refreshes itself with no human in
 the loop.

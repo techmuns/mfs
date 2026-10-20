@@ -2,6 +2,7 @@
 // persistence (shortlist + saved presets). Pure data; no DOM.
 
 import { COL_BY_KEY, DEFAULT_COLS } from './meta.js';
+import { scoreOf } from './score.js';
 
 const LS = {
   shortlist: 'mfs.shortlist.v1',
@@ -32,6 +33,7 @@ export const DEFAULT_FUNNEL = () => ({
   sharpe: { enabled: false, min: 0.5 },
   volCat: { enabled: false },
   maxdd: { enabled: false, min: -0.25 },
+  minScore: { enabled: false, min: 60 },
 });
 
 export const FUNNEL_RULES = [
@@ -42,15 +44,17 @@ export const FUNNEL_RULES = [
   { key: 'sharpe', label: (fn) => `Sharpe ≥ ${fn.sharpe.min.toFixed(1)}`, test: (f, fn) => f.risk.sharpe != null && f.risk.sharpe >= fn.sharpe.min },
   { key: 'volCat', label: 'Volatility ≤ category avg', test: (f, fn, cats) => f.risk.volatility != null && cats[f.peerGroup] && cats[f.peerGroup].mean.volatility != null && f.risk.volatility <= cats[f.peerGroup].mean.volatility },
   { key: 'maxdd', label: (fn) => `Max drawdown ≥ ${(fn.maxdd.min * 100).toFixed(0)}%`, test: (f, fn) => f.risk.maxDrawdown != null && f.risk.maxDrawdown >= fn.maxdd.min },
+  { key: 'minScore', label: (fn) => `Composite score ≥ ${fn.minScore.min}`, test: (f, fn) => { const s = scoreOf(f); return s != null && s >= fn.minScore.min; } },
 ];
 
 export const state = {
-  funds: [], categories: {}, status: null,
+  funds: [], categories: {}, status: null, benchmarks: {}, alerts: { events: [] },
   filters: DEFAULT_FILTERS(),
   funnel: DEFAULT_FUNNEL(),
   sort: { key: 'y5', dir: 'desc' },
   cols: [...DEFAULT_COLS],
   shortlist: new Set(lsGet(LS.shortlist, [])),
+  compareFunds: [],
   presets: lsGet(LS.presets, []),
   activeTab: 'screener',
   listeners: new Set(),

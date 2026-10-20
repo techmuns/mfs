@@ -1,5 +1,7 @@
 // meta.js — shared constants, formatters, heat-map colour grading, column definitions,
-// the plain-English metric glossary and inline SVG icons. No external deps.
+// the plain-English metric glossary and inline SVG icons.
+
+import { scoreOf } from './score.js';
 
 // ---- palette (matches the Phase-1 design tokens) ---------------------------
 export const C = {
@@ -100,6 +102,7 @@ const G = {
 
 export const COLUMNS = [
   { key: 'name', label: 'Fund', tip: 'Fund name — click a row for details.', align: 'left', group: 'core', get: (f) => f.name, fmt: (v) => v },
+  { key: 'score', label: 'Score', tip: 'Composite score 0–100 — the fund’s percentile vs its peer group across performance, consistency, risk, cost and manager. Re-weightable in Fund Details. Research only, not advice.', align: 'right', group: 'core', get: (f) => scoreOf(f), fmt: (v) => (v == null ? null : Math.round(v).toString()), grade: 'high', naReason: () => 'not enough data' },
   { key: 'group', label: 'Category', tip: 'Peer group used for every “vs category” comparison.', align: 'left', group: 'core', get: (f) => f.peerGroup, fmt: (v) => v },
   { key: 'catRaw', label: 'AMFI Category', tip: 'The raw SEBI/AMFI category.', align: 'left', group: 'extra', get: (f) => f.category, fmt: (v) => v },
   { key: 'aum', label: 'AUM', tip: 'Fund size — assets under management across all plans. Source: AMFI, via tigzig.', align: 'right', group: 'core', get: (f) => (f.aum ? f.aum.cr : null), fmt: aumFmt, grade: null, naReason: (f) => (f.aum ? '' : 'not disclosed') },

@@ -41,12 +41,33 @@ function stripAmc(name, amc) {
   return n;
 }
 
+// Passive INDEX funds get their own peer groups so "vs category" compares like with like (an
+// index fund vs its own segment, never against active funds). FIRST match wins, so the more
+// specific signals — international and factor/smart-beta tilts — are tested BEFORE the plain cap
+// buckets (e.g. "Nifty Midcap 150 Momentum 50" is a factor fund, not a mid-cap fund).
+export const INDEX_GROUP_MAP = [
+  ['International', /nasdaq|s&\s*p\s*500|hang\s*seng|\bglobal\b|\bworld\b|developed|\bmsci\b|\bfang\b|\bnyse\b|emerging|\bchina\b|\bjapan\b|overseas/],
+  ['Factor / Smart-Beta', /momentum|\bvalue\b|quality|\balpha\b|low\s*vol|volatility|equal\s*weight|\bfactor\b|multi[-\s]?factor|enhanced|\bedge\b|growth sector/],
+  ['Sectoral', /\bbank\b|banking|financ|\bbfsi\b|finserv|\bit\b|niftyit|infotech|technolog|\bdigital\b|internet|pharma|health|\bauto\b|\bev\b|mobility|\bfmcg\b|consum|\binfra|\benergy\b|\bpower\b|\bpsu\b|\bmetal|realty|\breit|\bmedia\b|\boil\b|\bgas\b|chemical|manufactur|defence|defense|railway|insurance|capital market|private bank|consumer durable|tourism|housing|logistics|transport/],
+  ['Mid & Small Cap', /midcap|mid\s*cap|smallcap|small\s*cap|midsmall|mid\s*&?\s*small|microcap|micro\s*cap/],
+  ['Large Cap', /nifty\s*50\b|nifty50\b|nifty\s*index|next\s*50|nifty\s*100\b|nifty100\b|sensex|large\s*cap|largecap|\btop\s*\d+\b/],
+  ['Broad Market', /nifty\s*200\b|nifty\s*500\b|nifty500\b|bse\s*500|bse\s*1000|total\s*market|multicap|multi\s*cap|\b750\b|\b1000\b/],
+];
+
+/** Index-fund peer group from the (AMC-stripped) scheme name. */
+export function deriveIndexPeerGroup(name) {
+  const n = (name || '').toLowerCase();
+  for (const [group, re] of INDEX_GROUP_MAP) if (re.test(n)) return `Index: ${group}`;
+  return 'Index: Other';
+}
+
 /**
- * Peer group for a fund. Diversified categories keep their category; Sectoral/Thematic funds
- * are routed to a "Thematic: <Theme>" group by the first keyword match in their name (with the
- * AMC name stripped first).
+ * Peer group for a fund. Passive index funds are routed to "Index: <Segment>"; diversified
+ * categories keep their category; Sectoral/Thematic funds are routed to "Thematic: <Theme>" by
+ * the first keyword match in their name (with the AMC name stripped first).
  */
 export function derivePeerGroup(category, name, amc) {
+  if (category === 'Index Fund') return deriveIndexPeerGroup(stripAmc(name, amc));
   if (category !== 'Sectoral/Thematic') return category;
   const n = stripAmc(name, amc).toLowerCase();
   for (const [theme, re] of THEME_MAP) {
@@ -58,4 +79,9 @@ export function derivePeerGroup(category, name, amc) {
 /** True for the Sectoral/Thematic-derived groups (handy for the UI to group them separately). */
 export function isThematicGroup(peerGroup) {
   return typeof peerGroup === 'string' && peerGroup.startsWith('Thematic:');
+}
+
+/** True for the passive index peer groups. */
+export function isIndexGroup(peerGroup) {
+  return typeof peerGroup === 'string' && peerGroup.startsWith('Index:');
 }

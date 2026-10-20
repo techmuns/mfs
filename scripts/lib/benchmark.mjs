@@ -16,7 +16,9 @@ const NIFTY_URL = 'https://www.niftyindices.com/BackPage/getTotalReturnIndexStri
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 const MONTHS = { jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5, jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11 };
 
-// Canonical NSE index names, each verified to return a non-empty TRI series.
+// Canonical NSE index names, each verified to return a non-empty TRI series. The first block was
+// verified during the Phase-3A bring-up; the second block was added for passive index funds and
+// is confirmed live on each build (an empty fetch is logged and the affected funds show N/A).
 export const CANONICAL = new Set([
   'NIFTY 50', 'NIFTY 100', 'NIFTY 200', 'NIFTY 500', 'NIFTY MIDCAP 150', 'NIFTY SMALLCAP 250',
   'NIFTY LARGEMIDCAP 250', 'NIFTY500 MULTICAP 50:25:25', 'NIFTY BANK', 'NIFTY FINANCIAL SERVICES',
@@ -24,7 +26,72 @@ export const CANONICAL = new Set([
   'NIFTY INDIA CONSUMPTION', 'NIFTY AUTO', 'NIFTY METAL', 'NIFTY FMCG', 'NIFTY INDIA MANUFACTURING',
   'NIFTY MNC', 'NIFTY100 ESG', 'NIFTY COMMODITIES', 'NIFTY SERVICES SECTOR', 'NIFTY PSE',
   'NIFTY TRANSPORTATION & LOGISTICS',
+  // index-fund targets
+  'NIFTY NEXT 50', 'NIFTY MIDCAP 50', 'NIFTY MIDCAP 100', 'NIFTY SMALLCAP 50', 'NIFTY SMALLCAP 100',
+  'NIFTY MICROCAP 250', 'NIFTY MIDSMALLCAP 400', 'NIFTY TOTAL MARKET', 'NIFTY PSU BANK',
+  'NIFTY PRIVATE BANK', 'NIFTY REALTY', 'NIFTY MEDIA', 'NIFTY CONSUMER DURABLES', 'NIFTY OIL & GAS',
 ]);
+
+// Overseas / non-NSE trackers → no NSE TRI (reported N/A with an honest reason, never proxied).
+const OVERSEAS_RE = /nasdaq|s&\s*p\s*500|hang\s*seng|\bmsci\b|\bfang\b|\bnyse\b|\bglobal\b|\bworld\b|developed|emerging\s*market|\bchina\b|\bjapan\b/i;
+
+// An index fund's benchmark IS the index it tracks. Map the scheme name → canonical NSE index.
+// Ordered: specific caps and SECTORS before the plain broad indices, so "Nifty Bank Index Fund"
+// maps to NIFTY BANK, not NIFTY 50. Factor/smart-beta and "Other" index funds are intentionally
+// NOT mapped here (their specific TRI isn't carried) and resolve to N/A rather than a wrong proxy.
+const INDEX_TRACK_MAP = [
+  [/next\s*50/i, 'NIFTY NEXT 50'],
+  [/midcap\s*50\b|midcap50\b/i, 'NIFTY MIDCAP 50'],
+  [/midcap\s*100\b|midcap100\b/i, 'NIFTY MIDCAP 100'],
+  [/midcap\s*150\b|midcap150\b/i, 'NIFTY MIDCAP 150'],
+  [/smallcap\s*50\b|smallcap50\b/i, 'NIFTY SMALLCAP 50'],
+  [/smallcap\s*100\b|smallcap100\b/i, 'NIFTY SMALLCAP 100'],
+  [/smallcap\s*250\b|smallcap250\b/i, 'NIFTY SMALLCAP 250'],
+  [/microcap\s*250|microcap250/i, 'NIFTY MICROCAP 250'],
+  [/midsmall/i, 'NIFTY MIDSMALLCAP 400'],
+  [/largemidcap|large\s*&?\s*mid/i, 'NIFTY LARGEMIDCAP 250'],
+  [/psu\s*bank/i, 'NIFTY PSU BANK'],
+  [/private\s*bank/i, 'NIFTY PRIVATE BANK'],
+  [/\bbank\b|banking/i, 'NIFTY BANK'],
+  [/financial\s*services|finserv|\bbfsi\b/i, 'NIFTY FINANCIAL SERVICES'],
+  [/\bit\b|niftyit|infotech/i, 'NIFTY IT'],
+  [/pharma/i, 'NIFTY PHARMA'],
+  [/health/i, 'NIFTY HEALTHCARE'],
+  [/\bauto\b/i, 'NIFTY AUTO'],
+  [/\bfmcg\b/i, 'NIFTY FMCG'],
+  [/consumer\s*durable/i, 'NIFTY CONSUMER DURABLES'],
+  [/consumption/i, 'NIFTY INDIA CONSUMPTION'],
+  [/\binfra/i, 'NIFTY INFRASTRUCTURE'],
+  [/oil\s*&?\s*gas/i, 'NIFTY OIL & GAS'],
+  [/\benergy\b|\bpower\b/i, 'NIFTY ENERGY'],
+  [/\bmetal/i, 'NIFTY METAL'],
+  [/realty|\breit/i, 'NIFTY REALTY'],
+  [/\bmedia\b/i, 'NIFTY MEDIA'],
+  [/manufactur/i, 'NIFTY INDIA MANUFACTURING'],
+  [/\bmnc\b/i, 'NIFTY MNC'],
+  [/\bpse\b/i, 'NIFTY PSE'],
+  [/total\s*market/i, 'NIFTY TOTAL MARKET'],
+  [/500\s*multicap|multicap\s*50:25:25/i, 'NIFTY500 MULTICAP 50:25:25'],
+  [/nifty\s*500\b|nifty500\b/i, 'NIFTY 500'],
+  [/nifty\s*200\b|nifty200\b/i, 'NIFTY 200'],
+  [/nifty\s*100\b|nifty100\b/i, 'NIFTY 100'],
+  [/nifty\s*50\b|nifty50\b|nifty\s*index/i, 'NIFTY 50'],
+];
+
+/**
+ * Index-fund benchmark from its name + peer group:
+ *   'overseas' → overseas/non-NSE index (N/A, no NSE TRI)
+ *   'na'       → factor/smart-beta or other index with no carried TRI (N/A, never a proxy)
+ *   <string>   → a canonical NSE index name to fetch
+ *   null       → unrecognised; caller may fall back to the filed benchmark
+ */
+function indexTrack(name, peerGroup) {
+  const n = (name || '').toLowerCase();
+  if (OVERSEAS_RE.test(n) || peerGroup === 'Index: International') return 'overseas';
+  if (peerGroup === 'Index: Factor / Smart-Beta' || peerGroup === 'Index: Other') return 'na';
+  for (const [re, idx] of INDEX_TRACK_MAP) if (re.test(n)) return idx;
+  return null;
+}
 
 // peerGroup → fallback canonical index when the filed benchmark isn't a fetchable Nifty index.
 // Thematic: Other and Thematic: International have no sound proxy → N/A.
@@ -54,8 +121,23 @@ export function normalizeFiled(filed) {
   return CANONICAL.has(s) ? s : null;
 }
 
-/** Resolve the TRI index for a fund: {indexName, basis:'filed'|'category'} or null (→ N/A). */
-export function resolveBenchmark(filed, peerGroup) {
+/**
+ * Resolve the TRI index for a fund:
+ *   { indexName, basis:'filed'|'category'|'index' } | { overseas:true } | null (→ N/A).
+ * For a passive index fund (opts.isIndex), the benchmark is the index it TRACKS (derived from its
+ * name, basis 'index'); overseas trackers return { overseas:true }; a factor/other index returns
+ * null. Index funds never get a peer-group proxy. Active funds keep the filed→category logic.
+ */
+export function resolveBenchmark(filed, peerGroup, opts = {}) {
+  const { isIndex, name } = opts;
+  if (isIndex) {
+    const info = indexTrack(name, peerGroup);
+    if (info === 'overseas') return { overseas: true };
+    if (info === 'na') return null;
+    if (info) return { indexName: info, basis: 'index' };
+    const d = normalizeFiled(filed); // unrecognised name → the fund's own filed benchmark, else N/A
+    return d ? { indexName: d, basis: 'filed' } : null;
+  }
   const direct = normalizeFiled(filed);
   if (direct) return { indexName: direct, basis: 'filed' };
   const fb = PEERGROUP_FALLBACK[peerGroup];

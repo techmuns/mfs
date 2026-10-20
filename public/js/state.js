@@ -65,7 +65,11 @@ export function emit() { for (const fn of state.listeners) fn(); }
 
 // ---- filter bar ------------------------------------------------------------
 export function passesFilters(f, flt, cats) {
-  if (flt.peerGroup && f.peerGroup !== flt.peerGroup) return false;
+  if (flt.peerGroup) {
+    if (flt.peerGroup === '__active') { if (f.isIndex) return false; }
+    else if (flt.peerGroup === '__index') { if (!f.isIndex) return false; }
+    else if (f.peerGroup !== flt.peerGroup) return false;
+  }
   if (flt.search) {
     const q = flt.search.toLowerCase();
     if (!f.name.toLowerCase().includes(q) && !(f.amc || '').toLowerCase().includes(q)) return false;
@@ -90,7 +94,10 @@ export function filteredBase() {
 /** Scope = funds in the selected peer group only (ignores the other filters). */
 export function scopeCount() {
   const pg = state.filters.peerGroup;
-  return pg ? state.funds.filter((f) => f.peerGroup === pg).length : state.funds.length;
+  if (!pg) return state.funds.length;
+  if (pg === '__active') return state.funds.filter((f) => !f.isIndex).length;
+  if (pg === '__index') return state.funds.filter((f) => f.isIndex).length;
+  return state.funds.filter((f) => f.peerGroup === pg).length;
 }
 
 // ---- elimination funnel ----------------------------------------------------
@@ -155,7 +162,7 @@ export function resetFilters() { state.filters = DEFAULT_FILTERS(); state.funnel
 /** List of active filter chips for the UI: [{key, label}]. */
 export function activeChips() {
   const f = state.filters, chips = [];
-  if (f.peerGroup) chips.push({ key: 'peerGroup', label: f.peerGroup });
+  if (f.peerGroup) chips.push({ key: 'peerGroup', label: f.peerGroup === '__active' ? 'Active funds only' : f.peerGroup === '__index' ? 'Index funds only' : f.peerGroup });
   if (f.search) chips.push({ key: 'search', label: `“${f.search}”` });
   if (f.min5y != null) chips.push({ key: 'min5y', label: `5Y ≥ ${(f.min5y * 100).toFixed(0)}%` });
   if (f.min10y != null) chips.push({ key: 'min10y', label: `10Y ≥ ${(f.min10y * 100).toFixed(0)}%` });

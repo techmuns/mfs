@@ -57,7 +57,8 @@ function cellHtml(col, f, cats, st) {
   if (col.soon) return `<td class="${align}"><span class="v-dim" title="${esc(col.tip)}">—</span></td>`;
   if (col.key === 'name') {
     const star = inShortlist(f.schemeCode) ? '<span class="text-amber-400" title="In shortlist">★</span> ' : '';
-    return `<td class="text-left stick stick-1"><div class="fund-name font-semibold text-slate-800 leading-tight" title="${esc(f.name)}">${star}${esc(f.name)}</div><div class="fund-name text-[11px] text-slate-400" title="${esc(f.amc || '')}">${esc(f.amc || '')}</div></td>`;
+    const badge = f.isIndex ? '<span class="idx-badge" title="Passive index fund">Passive</span> ' : '';
+    return `<td class="text-left stick stick-1"><div class="fund-name font-semibold text-slate-800 leading-tight" title="${esc(f.name)}">${star}${esc(f.name)}</div><div class="fund-name text-[11px] text-slate-400" title="${esc(f.amc || '')}">${badge}${esc(f.amc || '')}</div></td>`;
   }
   if (col.key === 'group' || col.key === 'catRaw') {
     const g = col.get(f); const c = groupColor(f.peerGroup);

@@ -33,7 +33,18 @@ export function computeAlertEvents(oldArr, newArr, status, priorIds) {
   const oldByCode = new Map(oldArr.map((f) => [f.schemeCode, f]));
   const newByCode = new Map(newArr.map((f) => [f.schemeCode, f]));
 
+  // One-time re-baseline when the passive index-fund universe is first added: fold the hundreds of
+  // new index funds into a SINGLE summary note instead of flooding the feed with NEW_FUND events.
+  // Normal per-fund detection resumes next build (the committed data then already carries index funds).
+  const isIdx = (f) => f.isIndex || f.category === 'Index Fund';
+  const newIndex = newArr.filter((f) => isIdx(f) && !oldByCode.has(f.schemeCode));
+  const rebaseIndex = !oldArr.some(isIdx) && newIndex.length >= 10;
+  if (rebaseIndex) {
+    add({ id: 'UNIVERSE_EXPANDED:index-funds', type: 'UNIVERSE_EXPANDED', severity: 'notable', title: `🧭 Universe expanded — ${newIndex.length} equity index funds added`, detail: 'Passive index funds are now tracked alongside active funds. Day-to-day new-fund alerts resume from the next refresh.' });
+  }
+
   for (const f of newArr) if (!oldByCode.has(f.schemeCode)) {
+    if (rebaseIndex && isIdx(f)) continue; // folded into the one UNIVERSE_EXPANDED note above
     add({ id: `NEW_FUND:${f.schemeCode}`, type: 'NEW_FUND', severity: 'notable', schemeCode: f.schemeCode, fundName: f.name, title: `🆕 New fund added — ${f.name}`, detail: `${f.peerGroup}${f.amc ? ' · ' + f.amc : ''}` });
   }
   for (const f of oldArr) if (!newByCode.has(f.schemeCode)) {

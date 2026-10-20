@@ -31,9 +31,9 @@ export async function enrichFunds(funds, priorByCode, log = console.log) {
   const needed = new Set();
   for (const f of funds) {
     const filed = tig?.get(f.schemeCode)?.benchmarkFiled ?? priorByCode.get(f.schemeCode)?.benchmark?.filed ?? null;
-    const r = resolveBenchmark(filed, f.peerGroup);
+    const r = resolveBenchmark(filed, f.peerGroup, { isIndex: f.isIndex, name: f.name });
     resolved.set(f.schemeCode, { r, filed });
-    if (r) needed.add(r.indexName);
+    if (r && r.indexName) needed.add(r.indexName);
   }
 
   // 3) fetch each needed TRI once (throttle ~1s; empty array = silent name mismatch) ----
@@ -56,8 +56,10 @@ export async function enrichFunds(funds, priorByCode, log = console.log) {
     const { r, filed } = resolved.get(f.schemeCode);
 
     let benchmark;
-    if (!r) {
-      benchmark = { indexName: null, basis: null, filed, source: NSE_TRI_SOURCE, reason: 'no mapped TRI benchmark' };
+    if (r && r.overseas) {
+      benchmark = { indexName: null, basis: null, filed, source: NSE_TRI_SOURCE, reason: 'overseas index — no NSE TRI' };
+    } else if (!r) {
+      benchmark = { indexName: null, basis: null, filed, source: NSE_TRI_SOURCE, reason: f.isIndex ? 'tracked index has no NSE TRI' : 'no mapped TRI benchmark' };
     } else {
       const s = triByIndex.get(r.indexName);
       if (!s) {

@@ -81,7 +81,8 @@ async function main() {
   log('Fetching AMFI NAVAll ...');
   const navAllText = await fetchAmfiNavAll();
   const universe = parseAmfiEquityUniverse(navAllText);
-  log(`AMFI universe: ${universe.length} open-ended equity Direct-Growth schemes`);
+  const nIndexUni = universe.filter((u) => u.isIndex).length;
+  log(`AMFI universe: ${universe.length} open-ended Direct-Growth schemes (${universe.length - nIndexUni} active + ${nIndexUni} passive index)`);
   if (universe.length === 0) throw new Error('AMFI parse produced 0 funds — aborting (likely a format change)');
 
   // AMFI's file date (all rows share one date) — used as the AMFI source as-of.
@@ -103,7 +104,8 @@ async function main() {
         name: u.name,
         amc: u.amc || (raw.meta && raw.meta.fund_house) || null,
         category: u.category,
-        peerGroup: derivePeerGroup(u.category, u.name, u.amc), // Sectoral/Thematic -> "Thematic: <Theme>"
+        isIndex: !!u.isIndex, // passive index fund (its own "Index: <segment>" peer group)
+        peerGroup: derivePeerGroup(u.category, u.name, u.amc), // Sectoral/Thematic -> "Thematic: <Theme>"; Index Fund -> "Index: <segment>"
         plan: u.plan,
         option: u.option,
         isin: u.isin || (raw.meta && raw.meta.isin_growth) || null,
@@ -168,6 +170,8 @@ async function main() {
   // 4) Counts + write --------------------------------------------------------
   const counts = {
     equityDirectGrowth: funds.length,
+    activeFunds: funds.filter((f) => !f.isIndex).length,
+    indexFunds: funds.filter((f) => f.isIndex).length,
     with3y: funds.filter((f) => f.history.has3y).length,
     with5y: funds.filter((f) => f.history.has5y).length,
     with10y: funds.filter((f) => f.history.has10y).length,
@@ -203,7 +207,8 @@ async function main() {
     benchmarkIndices: enrich.indicesFetched,
     enrichmentWarnings: enrich.warnings,
     notes: [
-      'Universe: open-ended EQUITY schemes, Direct plan, Growth option only.',
+      'Universe: open-ended Direct-Growth schemes — ACTIVE equity (every sub-category) plus PASSIVE equity index funds (category "Index Fund", isIndex:true); debt / target-maturity / commodity index funds are excluded by name.',
+      'Passive index funds live in their own "Index: <segment>" peer groups (Large Cap, Broad Market, Mid & Small Cap, Sectoral, Factor / Smart-Beta, International, Other), so their averages and "vs category" never mix with active funds — the active peer-group averages are unchanged. An index fund is benchmarked against the index it TRACKS (benchmark.basis="index"); overseas trackers (Nasdaq / S&P 500 / MSCI) have no NSE TRI and show N/A. For a passive fund a slightly-negative benchmark excess (fee + tracking error) is expected and is a useful quality signal — judge it on low fee + tight tracking, not on beating the index.',
       'Averages and vs-category are computed per PEER GROUP: diversified categories stay as-is, while Sectoral/Thematic funds are split into "Thematic: <Theme>" groups (theme inferred from the scheme name) so like is compared with like. Each fund keeps its raw AMFI category too.',
       'Category averages are over Direct-Growth funds only (each portfolio counted once).',
       'Returns are decimal fractions (0.12 = 12%). Periods <= 12 months are absolute, longer periods are CAGR (365.25-day year).',

@@ -75,6 +75,7 @@ function overviewTab(f) {
   const warns = warnings(f);
   return `<div class="grid gap-4 lg:grid-cols-2">
     <div class="space-y-3">
+      ${f.isIndex ? `<div class="flex gap-2 rounded-xl bg-sky-50 p-2.5 text-xs ring-1 ring-inset ring-sky-100"><span>🎯</span><div><b class="text-sky-700">Passive index fund.</b> <span class="text-sky-700/80">Judge it on low fee + tight tracking — a benchmark excess near zero (slightly negative is normal, from fees) is good. It aims to match ${f.benchmark && f.benchmark.indexName ? esc(f.benchmark.indexName) : 'its index'}, not beat it.</span></div></div>` : ''}
       <div class="grid grid-cols-2 gap-2">
         ${tile('Latest NAV', '₹' + num(f.latestNav, 2), fmtDate(f.latestNavDate))}
         ${tile('Fund size', f.aum ? aumFmt(f.aum.cr) : 'N/A', f.aum ? 'as of ' + fmtDate(f.aum.asOf) : 'not disclosed')}
@@ -224,7 +225,7 @@ export function renderDetail(container, f, { slide = false } = {}) {
   container.innerHTML = `
     <header class="flex items-start gap-3 border-b border-slate-100 p-5" style="background:linear-gradient(135deg, ${c}14, transparent)">
       <div class="min-w-0 flex-1">
-        <div class="flex items-center gap-2"><span class="pill" style="background:${c}1a;color:${c}">${esc(f.peerGroup)}</span><span class="text-[11px] text-slate-400">${esc(f.category)}</span></div>
+        <div class="flex flex-wrap items-center gap-2"><span class="pill" style="background:${c}1a;color:${c}">${esc(f.peerGroup)}</span><span class="text-[11px] text-slate-400">${esc(f.category)}</span>${f.isIndex ? '<span class="pill" style="background:#ccfbf1;color:#0f766e">Passive · Index</span>' : ''}</div>
         <h2 class="mt-1 font-display text-xl font-extrabold leading-tight text-slate-900">${esc(f.name)}</h2>
         <p class="text-xs text-slate-500">${esc(f.amc || '')} · Direct · Growth</p>
       </div>

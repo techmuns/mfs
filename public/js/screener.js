@@ -7,7 +7,7 @@ import {
   state, emit, filteredBase, visibleFunds, scopeCount, runFunnel, FUNNEL_RULES,
   activeChips, clearChip, resetFilters, savePreset, loadPreset,
 } from './state.js';
-import { ICON, esc, pct, isThematic, orderGroups } from './meta.js';
+import { ICON, esc, pct, isThematic, isIndex, orderGroups } from './meta.js';
 import { categoryBar, topFundsBar, rollingRange } from './charts.js';
 import { renderTable, columnPickerItems, toggleCol, selected } from './table.js';
 import { exportCSV, exportExcel } from './export.js';
@@ -133,11 +133,18 @@ function chartCard(id, title, sub, tip) {
 function buildGroupOptions() {
   const sel = root.querySelector('#f-group');
   const groups = orderGroups(Object.keys(state.categories));
-  const div = groups.filter((g) => !isThematic(g)), them = groups.filter(isThematic);
+  const div = groups.filter((g) => !isThematic(g) && !isIndex(g));
+  const them = groups.filter(isThematic);
+  const idx = groups.filter(isIndex);
   const opt = (g) => `<option value="${esc(g)}">${esc(g)} (${state.categories[g].n})</option>`;
+  const nIndex = state.funds.filter((f) => f.isIndex).length;
+  const nActive = state.funds.length - nIndex;
   sel.innerHTML = `<option value="">All funds (${state.funds.length})</option>` +
-    `<optgroup label="Diversified">${div.map(opt).join('')}</optgroup>` +
-    `<optgroup label="Thematic">${them.map(opt).join('')}</optgroup>`;
+    `<option value="__active">All active funds (${nActive})</option>` +
+    (nIndex ? `<option value="__index">All index funds (${nIndex})</option>` : '') +
+    `<optgroup label="Active — diversified">${div.map(opt).join('')}</optgroup>` +
+    `<optgroup label="Active — thematic">${them.map(opt).join('')}</optgroup>` +
+    (idx.length ? `<optgroup label="Index (passive)">${idx.map(opt).join('')}</optgroup>` : '');
 }
 
 // ---- popover manager -------------------------------------------------------
@@ -267,8 +274,9 @@ function renderKPIs() {
       <div class="kpi-v" style="color:${grad}">${value}</div>
       <div class="kpi-sub" title="${esc(sub)}">${esc(sub)}</div>
     </div>`;
+  const pgLabel = pg === '__active' ? 'Active funds only' : pg === '__index' ? 'Index funds only' : (pg || 'All peer groups');
   root.querySelector('#kpi-row').innerHTML =
-    item('#4f46e5', 'Funds in view', String(scopeCount()), pg || 'All peer groups') +
+    item('#4f46e5', 'Funds in view', String(scopeCount()), pgLabel) +
     item('#7c3aed', 'Passing filters', String(vis.length), 'after filters + screening steps') +
     item('#f59e0b', 'Best 5Y return', best ? pct(best.returns.y5) : '—', best ? best.name : 'no fund with 5Y') +
     item('#0ea5e9', 'Category avg 5Y', catAvg != null ? pct(catAvg) : '—', catAvgLabel);

@@ -22,17 +22,19 @@ export const GROUP_COLOR = {
   'Thematic: Manufacturing': '#4f46e5', 'Thematic: International': '#0d9488',
   'Thematic: Realty': '#e11d48', 'Thematic: MNC': '#7c3aed', 'Thematic: ESG': '#16a34a',
   'Thematic: Other': '#64748b',
+  // passive index peer groups
+  'Index: Large Cap': '#0284c7', 'Index: Broad Market': '#4338ca', 'Index: Mid & Small Cap': '#9333ea',
+  'Index: Sectoral': '#0d9488', 'Index: Factor / Smart-Beta': '#c026d3', 'Index: International': '#0891b2',
+  'Index: Other': '#64748b',
 };
 export const groupColor = (g) => GROUP_COLOR[g] || C.slate;
 export const isThematic = (g) => typeof g === 'string' && g.startsWith('Thematic:');
+export const isIndex = (g) => typeof g === 'string' && g.startsWith('Index:');
 
-/** Order peer groups: diversified (by size later) first, then "Thematic: *" alphabetical. */
+/** Order peer groups in clusters: diversified active, then "Thematic: *", then "Index: *" — each alphabetical. */
 export function orderGroups(groups) {
-  return [...groups].sort((a, b) => {
-    const ta = isThematic(a), tb = isThematic(b);
-    if (ta !== tb) return ta ? 1 : -1;
-    return a.localeCompare(b);
-  });
+  const rank = (g) => (isIndex(g) ? 2 : isThematic(g) ? 1 : 0);
+  return [...groups].sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
 }
 
 // ---- formatters ------------------------------------------------------------
@@ -106,11 +108,11 @@ export const COLUMNS = [
   { key: 'group', label: 'Category', tip: 'Peer group used for every “vs category” comparison.', align: 'left', group: 'core', w: 186, get: (f) => f.peerGroup, fmt: (v) => v },
   { key: 'catRaw', label: 'AMFI Category', tip: 'The raw SEBI/AMFI category.', align: 'left', group: 'extra', w: 150, get: (f) => f.category, fmt: (v) => v },
   { key: 'aum', label: 'AUM', tip: 'Fund size — assets under management across all plans. Source: AMFI, via tigzig.', align: 'right', group: 'core', w: 96, get: (f) => (f.aum ? f.aum.cr : null), fmt: aumFmt, grade: null, naReason: (f) => (f.aum ? '' : 'not disclosed') },
-  { key: 'm1', label: '1M', tip: '1-month return (absolute).', align: 'right', group: 'extra', w: 68, get: (f) => f.returns.m1, fmt: pct, grade: 'high' },
-  { key: 'm3', label: '3M', tip: '3-month return (absolute).', align: 'right', group: 'extra', w: 68, get: (f) => f.returns.m3, fmt: pct, grade: 'high' },
-  { key: 'm6', label: '6M', tip: '6-month return (absolute).', align: 'right', group: 'extra', w: 68, get: (f) => f.returns.m6, fmt: pct, grade: 'high' },
-  { key: 'y1', label: '1Y', tip: '1-year return (absolute).', align: 'right', group: 'extra', w: 68, get: (f) => f.returns.y1, fmt: pct, grade: 'high' },
-  { key: 'y3', label: '3Y', tip: '3-year return, annualised (CAGR).', align: 'right', group: 'extra', w: 68, get: (f) => f.returns.y3, fmt: pct, grade: 'high' },
+  { key: 'm1', label: '1M', tip: '1-month return (absolute).', align: 'right', group: 'extra', w: 80, get: (f) => f.returns.m1, fmt: pct, grade: 'high' },
+  { key: 'm3', label: '3M', tip: '3-month return (absolute).', align: 'right', group: 'extra', w: 80, get: (f) => f.returns.m3, fmt: pct, grade: 'high' },
+  { key: 'm6', label: '6M', tip: '6-month return (absolute).', align: 'right', group: 'extra', w: 80, get: (f) => f.returns.m6, fmt: pct, grade: 'high' },
+  { key: 'y1', label: '1Y', tip: '1-year return (absolute).', align: 'right', group: 'extra', w: 80, get: (f) => f.returns.y1, fmt: pct, grade: 'high' },
+  { key: 'y3', label: '3Y CAGR', tip: '3-year return, annualised (CAGR).', align: 'right', group: 'core', w: 84, get: (f) => f.returns.y3, fmt: pct, grade: 'high' },
   { key: 'y5', label: '5Y CAGR', tip: G.y5cagr, align: 'right', group: 'core', w: 84, get: (f) => f.returns.y5, fmt: pct, grade: 'high' },
   { key: 'y10', label: '10Y CAGR', tip: G.y10cagr, align: 'right', group: 'core', w: 88, get: (f) => f.returns.y10, fmt: pct, grade: 'high' },
   { key: 'si', label: 'Since Incep.', tip: 'Annualised return since the fund launched.', align: 'right', group: 'extra', w: 96, get: (f) => f.returns.si, fmt: pct, grade: 'high' },

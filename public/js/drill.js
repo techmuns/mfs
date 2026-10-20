@@ -2,7 +2,7 @@
 // growth chart is fetched LIVE from MFAPI (CORS-enabled) only when a fund is opened.
 
 import { state, inShortlist, toggleShortlist } from './state.js';
-import { esc, pct, pctSigned, num, fmtDate, groupColor } from './meta.js';
+import { esc, pct, pctSigned, num, fmtDate, groupColor, terFmt, aumFmt, ppFmt } from './meta.js';
 import { navLine, disposeChart } from './charts.js';
 
 const navCache = new Map(); // schemeCode -> [[ts, nav], ...] ascending
@@ -63,6 +63,26 @@ export function openDrill(f) {
         ${statTile('Age', num(f.ageYears, 1) + ' yrs', 'since ' + fmtDate(f.inceptionDate))}
         ${statTile('Since incep.', pct(r.si) ?? 'N/A', 'annualised')}
       </div>
+
+      <section class="mt-4">
+        <h3 class="mb-2 font-display text-sm font-bold text-slate-700">Fund facts</h3>
+        <div class="grid grid-cols-2 gap-2 sm:grid-cols-3">
+          ${statTile('TER (Direct)', f.costs ? terFmt(f.costs.terDirect) : 'N/A', f.costs ? 'Regular ' + terFmt(f.costs.terRegular) : 'not disclosed')}
+          ${statTile('Fund size', f.aum ? aumFmt(f.aum.cr) : 'N/A', f.aum ? 'as of ' + fmtDate(f.aum.asOf) : 'not disclosed')}
+          ${statTile('Riskometer', f.riskometer || 'N/A', 'SEBI rating')}
+          ${f.benchmark && f.benchmark.indexName
+            ? statTile('Benchmark', f.benchmark.indexName, f.benchmark.basis === 'category' ? 'peer-group proxy' : 'filed benchmark')
+            : statTile('Benchmark', 'N/A', (f.benchmark && f.benchmark.reason) || '')}
+          ${statTile('5Y vs benchmark', f.benchmark && f.benchmark.excess && f.benchmark.excess.y5 != null ? ppFmt(f.benchmark.excess.y5) : 'N/A', 'excess return (TRI)')}
+          ${(() => {
+            if (!f.manager) return statTile('Lead manager', 'N/A', '');
+            const lead = [...f.manager.names].sort((a, b) => (b.tenureYears || 0) - (a.tenureYears || 0))[0];
+            const sub = [lead.tenureYears != null ? lead.tenureYears + 'y tenure' : '', f.manager.names.length > 1 ? f.manager.names.length + ' mgrs' : ''].filter(Boolean).join(' · ');
+            return statTile('Lead manager', lead.name, sub);
+          })()}
+        </div>
+        ${f.exitLoad ? `<details class="mt-2 rounded-lg bg-slate-50 p-2.5 text-xs text-slate-500 ring-1 ring-inset ring-slate-100"><summary class="cursor-pointer font-semibold text-slate-600">Exit load</summary><p class="mt-1.5 leading-relaxed">${esc(f.exitLoad.text)}</p></details>` : ''}
+      </section>
 
       <section class="mt-4">
         <div class="mb-2 flex items-center justify-between">

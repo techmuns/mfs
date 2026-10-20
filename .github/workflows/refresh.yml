@@ -29,7 +29,7 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Build data (fetch AMFI + MFAPI, compute metrics)
+      - name: Build data (AMFI + MFAPI metrics, tigzig fees/AUM/manager, NSE benchmark TRI)
         run: node scripts/build.mjs
 
       - name: Verify sample funds

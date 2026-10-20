@@ -39,6 +39,17 @@ export const pct = (v, dp = 1) => (v == null || !isFinite(v) ? null : (v * 100).
 export const pctSigned = (v, dp = 1) => (v == null || !isFinite(v) ? null : (v >= 0 ? '+' : '') + (v * 100).toFixed(dp) + '%');
 export const num = (v, dp = 2) => (v == null || !isFinite(v) ? null : v.toFixed(dp));
 export const ageFmt = (v) => (v == null || !isFinite(v) ? null : v.toFixed(1) + 'y');
+// TER arrives already in percent (0.69 = 0.69%), so it is NOT multiplied by 100.
+export const terFmt = (v) => (v == null || !isFinite(v) ? null : v.toFixed(2) + '%');
+// Percentage-point gap (decimal in, e.g. 0.023 -> "+2.3pp").
+export const ppFmt = (v) => (v == null || !isFinite(v) ? null : (v >= 0 ? '+' : '') + (v * 100).toFixed(1) + 'pp');
+// AUM in ₹ crore -> compact Indian form (₹1.49L cr / ₹820cr).
+export const aumFmt = (v) => {
+  if (v == null || !isFinite(v)) return null;
+  if (v >= 1e5) return '₹' + (v / 1e5).toFixed(2) + 'L cr';
+  if (v >= 1e3) return '₹' + (v / 1e3).toFixed(1) + 'k cr';
+  return '₹' + Math.round(v) + 'cr';
+};
 
 export function fmtDate(iso) {
   if (!iso) return '—';
@@ -91,7 +102,7 @@ export const COLUMNS = [
   { key: 'name', label: 'Fund', tip: 'Fund name — click a row for details.', align: 'left', group: 'core', get: (f) => f.name, fmt: (v) => v },
   { key: 'group', label: 'Category', tip: 'Peer group used for every “vs category” comparison.', align: 'left', group: 'core', get: (f) => f.peerGroup, fmt: (v) => v },
   { key: 'catRaw', label: 'AMFI Category', tip: 'The raw SEBI/AMFI category.', align: 'left', group: 'extra', get: (f) => f.category, fmt: (v) => v },
-  { key: 'aum', label: 'AUM', tip: G.soonAum, align: 'right', group: 'core', soon: true },
+  { key: 'aum', label: 'AUM', tip: 'Fund size — assets under management across all plans. Source: AMFI, via tigzig.', align: 'right', group: 'core', get: (f) => (f.aum ? f.aum.cr : null), fmt: aumFmt, grade: null, naReason: (f) => (f.aum ? '' : 'not disclosed') },
   { key: 'm1', label: '1M', tip: '1-month return (absolute).', align: 'right', group: 'extra', get: (f) => f.returns.m1, fmt: pct, grade: 'high' },
   { key: 'm3', label: '3M', tip: '3-month return (absolute).', align: 'right', group: 'extra', get: (f) => f.returns.m3, fmt: pct, grade: 'high' },
   { key: 'm6', label: '6M', tip: '6-month return (absolute).', align: 'right', group: 'extra', get: (f) => f.returns.m6, fmt: pct, grade: 'high' },
@@ -105,14 +116,20 @@ export const COLUMNS = [
   { key: 'pctPos', label: '% Positive', tip: 'Share of 3-year windows that ended in a gain. 100% = never lost over 3 years.', align: 'right', group: 'extra', get: (f) => (f.rolling.y3 ? f.rolling.y3.pctPositive : null), fmt: pct, grade: 'high' },
   { key: 'vs5y', label: '5Y vs Category', tip: G.vs, align: 'right', group: 'core', get: (f) => f.vsCategory.y5, fmt: vsFmt, grade: 'vs', gradeVal: (f) => (f.vsCategory.y5 ? f.vsCategory.y5.ratio : null), sortVal: (f) => (f.vsCategory.y5 ? f.vsCategory.y5.ppGap : null) },
   { key: 'vs10y', label: '10Y vs Category', tip: G.vs, align: 'right', group: 'core', get: (f) => f.vsCategory.y10, fmt: vsFmt, grade: 'vs', gradeVal: (f) => (f.vsCategory.y10 ? f.vsCategory.y10.ratio : null), sortVal: (f) => (f.vsCategory.y10 ? f.vsCategory.y10.ppGap : null) },
-  { key: 'benchExcess', label: 'Benchmark Excess', tip: G.soonBench, align: 'right', group: 'core', soon: true },
+  { key: 'benchExcess', label: 'Benchmark Excess', tip: '5-year return minus the fund’s benchmark (Total Return Index) over the same period. Positive = beat the index. Source: NSE Indices TRI.', align: 'right', group: 'core', get: (f) => (f.benchmark && f.benchmark.excess ? f.benchmark.excess.y5 : null), fmt: ppFmt, grade: 'high', naReason: (f) => (f.benchmark && f.benchmark.reason) || 'no 5Y benchmark' },
   { key: 'sharpe', label: 'Sharpe', tip: G.sharpe, align: 'right', group: 'core', get: (f) => f.risk.sharpe, fmt: (v) => num(v, 2), grade: 'high' },
   { key: 'sortino', label: 'Sortino', tip: 'Like Sharpe but only penalises downside swings. Higher is better.', align: 'right', group: 'extra', get: (f) => f.risk.sortino, fmt: (v) => num(v, 2), grade: 'high' },
   { key: 'vol', label: 'Volatility', tip: G.vol, align: 'right', group: 'core', get: (f) => f.risk.volatility, fmt: pct, grade: 'low' },
   { key: 'catVol', label: 'Category Volatility', tip: G.catvol, align: 'right', group: 'core', get: (f, cats) => (cats && cats[f.peerGroup] ? cats[f.peerGroup].mean.volatility : null), fmt: pct, grade: null },
   { key: 'maxdd', label: 'Max Drawdown', tip: G.maxdd, align: 'right', group: 'core', get: (f) => f.risk.maxDrawdown, fmt: pct, grade: 'high' },
   { key: 'age', label: 'Age', tip: 'Years since the fund launched.', align: 'right', group: 'extra', get: (f) => f.ageYears, fmt: ageFmt, grade: null },
-  { key: 'ter', label: 'TER', tip: G.soonTer, align: 'right', group: 'core', soon: true },
+  { key: 'ter', label: 'TER', tip: 'Direct-plan expense ratio — the yearly fee, already reflected in returns. Lower is cheaper. Source: SEBI/AMFI, via tigzig.', align: 'right', group: 'core', get: (f) => (f.costs ? f.costs.terDirect : null), fmt: terFmt, grade: 'low', naReason: () => 'not disclosed' },
+  // --- extra enriched columns (column customiser) ---
+  { key: 'benchExcess3y', label: '3Y vs Benchmark', tip: '3-year return minus benchmark TRI.', align: 'right', group: 'extra', get: (f) => (f.benchmark && f.benchmark.excess ? f.benchmark.excess.y3 : null), fmt: ppFmt, grade: 'high' },
+  { key: 'benchName', label: 'Benchmark', tip: 'The Total Return Index this fund is compared against.', align: 'left', group: 'extra', get: (f) => (f.benchmark ? f.benchmark.indexName : null), fmt: (v) => v || '—', grade: null },
+  { key: 'terReg', label: 'TER (Regular)', tip: 'Regular-plan expense ratio.', align: 'right', group: 'extra', get: (f) => (f.costs ? f.costs.terRegular : null), fmt: terFmt, grade: 'low' },
+  { key: 'riskometer', label: 'Riskometer', tip: 'SEBI riskometer rating.', align: 'left', group: 'extra', get: (f) => f.riskometer, fmt: (v) => v || '—', grade: null },
+  { key: 'manager', label: 'Manager(s)', tip: 'Lead fund manager(s).', align: 'left', group: 'extra', get: (f) => (f.manager ? f.manager.names.slice(0, 2).map((n) => n.name).join(', ') : null), fmt: (v) => v || '—', grade: null },
 ];
 export const COL_BY_KEY = Object.fromEntries(COLUMNS.map((c) => [c.key, c]));
 export const DEFAULT_COLS = COLUMNS.filter((c) => c.group === 'core').map((c) => c.key);

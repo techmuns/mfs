@@ -36,9 +36,11 @@ The browser never crunches NAV history; it only loads three small JSON files.
 
 | File | Contents |
 | --- | --- |
-| `public/data/funds.json` | One object per fund: returns, rolling returns, risk, vs-category, history flags. |
-| `public/data/categories.json` | Per category: mean + median + per-metric sample size for each metric. |
-| `public/data/status.json` | Run metadata: generated-at, sources + as-of, risk-free rate, fund counts. |
+| `public/data/funds.json` | One object per fund: returns, rolling, risk, vs-category, history, **benchmark excess, costs (TER), AUM, manager, exit load, riskometer, holdings summary**. |
+| `public/data/categories.json` | Per peer group: mean + median + sample size per metric (incl. benchmark excess, median TER). |
+| `public/data/benchmarks.json` | Per index: the Total Return Index (TRI) series (monthly), for detail/compare charts. |
+| `public/data/holdings.json` | Per fund: full holdings + sector allocation (built by the monthly workflow; bulky, kept out of funds.json). |
+| `public/data/status.json` | Run metadata: generated-at, sources + as-of, risk-free rate, fund counts, **field coverage**. |
 
 ---
 
@@ -55,6 +57,16 @@ The browser never crunches NAV history; it only loads three small JSON files.
 3. **RBI 91-day Treasury Bill cut-off yield** — the risk-free rate for Sharpe/Sortino, stored
    with its source and as-of date in `scripts/config/risk-free-rate.json`. Update it
    periodically from the latest RBI weekly T-Bill auction press release.
+4. **[NSE Indices](https://www.niftyindices.com/)** (Phase 3A) — Total Return Index (TRI)
+   history for benchmark comparison. Server-side only; each fund is compared against its filed
+   benchmark where that is a Nifty index, else a peer-group Nifty proxy (stamped
+   `benchmark.basis="category"`), never a silent substitution. BSE/foreign/unmappable → N/A.
+5. **[tigzig](https://api.tigzig.com/)** (Phase 3A) — re-serves official AMFI/SEBI disclosures:
+   TER, AUM, fund managers, exit load, riskometer, filed benchmark. One bulk gzipped CSV joined
+   on scheme code. NAV returns are already net of fees, so TER is **not** deducted again.
+6. **AMC monthly portfolio disclosures** (Phase 3A, SEBI-mandated) — holdings + sectors, built by
+   the monthly workflow. A zero-dependency `.xlsx` reader + standard-layout parser are in
+   `scripts/lib/{xlsx,holdings}.mjs`; per-AMC current-file retrieval is wired AMC by AMC.
 
 ## Phase-1 universe
 
@@ -91,11 +103,19 @@ cd public && python3 -m http.server 8099   # then open http://localhost:8099
 
 ## Automated refresh
 
-`.github/workflows/refresh.yml` runs daily (`01:17 UTC ≈ 06:47 IST`) and on-demand
-(**Actions → Refresh fund data → Run workflow**). It rebuilds the data and commits the changed
-`public/data/*.json` back to the repo with a resilient push (fetch + rebase retry on reject).
-That commit triggers a Cloudflare Pages deploy — so the live site refreshes itself every night
-with no human in the loop.
+`.github/workflows/refresh.yml` runs **daily** (`01:17 UTC ≈ 06:47 IST`) and on-demand. It rebuilds
+everything — NAV metrics (MFAPI), fees/AUM/manager (tigzig), and benchmark excess (NSE TRI) — and
+commits the changed `public/data/*.json` with a resilient push. Benchmark/disclosure fetches are
+**fail-soft**: if a source is down, the prior committed value is carried forward and marked
+`stale:true`, so the run never wipes good data.
+
+`.github/workflows/holdings.yml` runs **monthly** (8th, when SEBI portfolio disclosures post) to
+rebuild `holdings.json` and re-run the main build so funds pick up holdings summaries. It reads the
+optional Bedrock secrets (`BEDROCK_API_KEY`, `AWS_REGION`, `BEDROCK_MODEL_IDS`) when present, to
+parse odd/PDF-only AMC layouts; without them it falls back to deterministic parsing.
+
+Each commit triggers a Cloudflare Pages deploy — so the live site refreshes itself with no human in
+the loop.
 
 ---
 

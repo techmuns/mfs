@@ -141,8 +141,24 @@ function renderStatus() {
     return `<div class="flex items-center gap-2"><span class="w-44 shrink-0 truncate text-xs text-slate-500" title="${esc(g)}">${esc(g)}</span>
       <div class="h-4 flex-1 rounded-full bg-slate-100"><div class="h-4 rounded-full" style="width:${Math.round(n / maxN * 100)}%;background:${col}"></div></div>
       <span class="w-8 text-right text-xs font-semibold tnum text-slate-600">${n}</span></div>`; }).join('');
-  const live = ['Returns (1M–10Y, since inception)', 'Rolling 3Y/5Y returns', 'Risk: volatility, Sharpe, Sortino, max drawdown', 'Peer-group averages & vs-category', 'Live NAV history chart (per fund)'];
-  const soon = ['AUM (fund size) & TER (fees)', 'Benchmark & excess return', 'Portfolio holdings & sector mix', 'Fund manager & tenure', 'Side-by-side compare (up to 5)'];
+  const live = ['Returns (1M–10Y, since inception)', 'Rolling 3Y/5Y returns', 'Risk: volatility, Sharpe, Sortino, max drawdown', 'Peer-group averages & vs-category', 'Benchmark excess vs Total Return Index', 'Fees (TER direct/regular), AUM, riskometer', 'Fund managers & tenure, exit load', 'Live NAV history chart (per fund)'];
+  const soon = ['Portfolio holdings & sector mix (rolling out AMC by AMC)', 'Full fund-detail page', 'Side-by-side compare (up to 5)', 'Composite score', '🔔 Alerts'];
+
+  const cov = s.coverage;
+  const covCard = cov ? (() => {
+    const row = (label, n, grad) => `<div class="flex items-center gap-2"><span class="w-36 shrink-0 text-xs text-slate-500">${label}</span>
+      <div class="h-4 flex-1 rounded-full bg-slate-100"><div class="h-4 rounded-full" style="width:${Math.round(n / cov.total * 100)}%;background:${grad}"></div></div>
+      <span class="w-20 text-right text-xs font-semibold tnum text-slate-600">${n}/${cov.total}</span></div>`;
+    return `<div class="card p-4"><h3 class="mb-3 font-display text-sm font-bold text-slate-700">Phase 3A field coverage</h3><div class="space-y-1.5">
+      ${row('Benchmark (TRI) excess', cov.benchmark, 'linear-gradient(90deg,#6366f1,#4f46e5)')}
+      ${row('Expense ratio (TER)', cov.ter, 'linear-gradient(90deg,#a855f7,#7c3aed)')}
+      ${row('Fund size (AUM)', cov.aum, 'linear-gradient(90deg,#38bdf8,#0ea5e9)')}
+      ${row('Fund manager', cov.manager, 'linear-gradient(90deg,#10b981,#059669)')}
+      ${row('Exit load', cov.exitLoad, 'linear-gradient(90deg,#f59e0b,#d97706)')}
+      ${row('Riskometer', cov.riskometer, 'linear-gradient(90deg,#14b8a6,#0d9488)')}
+      ${row('Holdings & sectors', cov.holdings, 'linear-gradient(90deg,#f472b6,#db2777)')}
+    </div><p class="mt-2 text-[11px] text-slate-400">Gaps are genuine non-disclosures or (for benchmark) funds with no mappable Nifty TRI — shown as N/A with a reason, never faked.</p></div>`;
+  })() : '';
   el.innerHTML = `
     <div class="grid grid-cols-2 gap-3 lg:grid-cols-4">
       ${tile('Funds', c.equityDirectGrowth, '#4f46e5', 'equity · Direct · Growth')}
@@ -150,6 +166,7 @@ function renderStatus() {
       ${tile('Peer groups', c.peerGroups ?? Object.keys(state.categories).length, '#10b981', 'incl. thematic splits')}
       ${tile('Risk-free rate', (s.riskFreeRate.annual_rate * 100).toFixed(2) + '%', '#f59e0b', 'used in Sharpe')}
     </div>
+    ${covCard ? `<div class="mt-4">${covCard}</div>` : ''}
     <div class="mt-4 grid gap-4 lg:grid-cols-2">
       <div class="card p-4"><h3 class="mb-3 font-display text-sm font-bold text-slate-700">Funds per peer group</h3><div class="space-y-1.5">${bars}</div></div>
       <div class="space-y-4">

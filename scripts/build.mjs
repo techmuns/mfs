@@ -24,6 +24,7 @@ import { fetchScheme, toNavSeries } from './lib/mfapi.mjs';
 import { computeFundMetrics } from './lib/metrics.mjs';
 import { computeCategories, attachVsCategory } from './lib/categories.mjs';
 import { derivePeerGroup } from './lib/peergroup.mjs';
+import { enrichFunds } from './lib/enrich.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, '..');
@@ -53,6 +54,25 @@ function writeJson(name, obj) {
   const path = join(DATA_DIR, name);
   writeFileSync(path, JSON.stringify(obj, roundReplacer) + '\n');
   return path;
+}
+
+// Prior committed funds.json, indexed by scheme code — used for fail-soft carry-forward of
+// enrichment fields when a source is down.
+function readPriorFunds() {
+  try { return new Map(JSON.parse(readFileSync(join(DATA_DIR, 'funds.json'), 'utf8')).map((f) => [f.schemeCode, f])); }
+  catch { return new Map(); }
+}
+
+// Holdings summaries from the separately-built holdings.json (monthly workflow), if present.
+function readHoldingsSummaries() {
+  const m = new Map();
+  try {
+    const o = JSON.parse(readFileSync(join(DATA_DIR, 'holdings.json'), 'utf8'));
+    for (const [code, h] of Object.entries(o.funds || o)) {
+      m.set(Number(code), { top10Pct: h.top10Pct, largestPct: h.largestPct, numSecurities: h.numSecurities, topSector: h.topSector, month: h.month, available: true });
+    }
+  } catch { /* no holdings file yet */ }
+  return m;
 }
 
 async function main() {
@@ -125,7 +145,26 @@ async function main() {
   // Latest NAV date across the whole set — the MFAPI data "as of".
   const dataAsOf = toISODate(Math.max(...funds.map((f) => f._latestNavMs || 0))) || amfiAsOf;
 
-  // 3) Categories + vs-category ---------------------------------------------
+  // 3) Enrichment: fees/AUM/manager/exit-load/riskometer (tigzig) + benchmark excess (NSE TRI)
+  log('Enriching with disclosures + benchmark TRI ...');
+  const priorByCode = readPriorFunds();
+  const enrich = await enrichFunds(funds, priorByCode, log);
+  const holdingsSummaries = readHoldingsSummaries();
+  for (const f of funds) {
+    const e = enrich.byCode.get(f.schemeCode);
+    f.benchmark = e.benchmark;
+    f.costs = e.costs;
+    f.aum = e.aum;
+    f.manager = e.manager;
+    f.exitLoad = e.exitLoad;
+    f.riskometer = e.riskometer;
+    f.holdings = holdingsSummaries.get(f.schemeCode) || { available: false, reason: 'AMC disclosure not yet wired / unparsed layout' };
+  }
+  const benchPath = writeJson('benchmarks.json', enrich.benchmarksJson);
+  log(`Benchmark TRI: ${enrich.indicesFetched.length} indices fetched${enrich.emptyIndices.length ? `, ${enrich.emptyIndices.length} empty: ${enrich.emptyIndices.join(', ')}` : ''}`);
+  log(`Coverage: ${JSON.stringify(enrich.coverage)}`);
+
+  // 4) Categories + vs-category ---------------------------------------------
   const categories = computeCategories(funds, dataAsOf);
   attachVsCategory(funds, categories);
 
@@ -139,6 +178,18 @@ async function main() {
     failures: failures.length,
   };
 
+  // Phase-3A field coverage (how many of the funds carry each enriched field).
+  const coverage = {
+    total: funds.length,
+    benchmark: enrich.coverage.benchmark,
+    ter: enrich.coverage.ter,
+    aum: enrich.coverage.aum,
+    manager: enrich.coverage.manager,
+    exitLoad: enrich.coverage.exitLoad,
+    riskometer: enrich.coverage.riskometer,
+    holdings: funds.filter((f) => f.holdings && f.holdings.available).length,
+  };
+
   for (const f of funds) delete f._latestNavMs; // strip internal field
 
   const status = {
@@ -147,9 +198,13 @@ async function main() {
     sources: [
       { name: 'MFAPI.in', url: 'https://www.mfapi.in/', asOf: dataAsOf, note: 'NAV history + scheme metadata (per-fund)' },
       { name: 'AMFI NAVAll', url: AMFI_URL, asOf: amfiAsOf, note: 'Official classified scheme universe (category + AMC)' },
+      ...enrich.sources,
     ],
     riskFreeRate: rf,
     counts,
+    coverage,
+    benchmarkIndices: enrich.indicesFetched,
+    enrichmentWarnings: enrich.warnings,
     notes: [
       'Universe: open-ended EQUITY schemes, Direct plan, Growth option only.',
       'Averages and vs-category are computed per PEER GROUP: diversified categories stay as-is, while Sectoral/Thematic funds are split into "Thematic: <Theme>" groups (theme inferred from the scheme name) so like is compared with like. Each fund keeps its raw AMFI category too.',
@@ -158,6 +213,9 @@ async function main() {
       'Risk metrics use a 3-year lookback (full history if younger, see risk.lookbackYears); volatility annualised with sqrt(252).',
       'Rolling returns step window starts monthly; rolling.*.n is the window count / confidence (read n < 12 as low-confidence).',
       'NAV "on/before" a date walks back to the nearest trading day — missing days are never interpolated. Insufficient history => null (N/A), never 0.',
+      'Benchmark: Total Return Index (TRI) from NSE Indices. benchmark.basis="filed" uses the scheme\'s own filed benchmark; "basis"="category" means the filed benchmark is a non-NSE index (e.g. a BSE index) and a peer-group Nifty proxy was used (never a silent substitution). No sound mapping (e.g. Thematic: Other, International) => benchmark N/A with a reason. Excess = fund CAGR − benchmark CAGR over the same windows; returns are already net of fees so TER is not deducted again.',
+      'Fees (TER), AUM, fund managers, exit load and riskometer are AMFI/SEBI disclosures via tigzig, each stamped with the disclosure as-of date; a field missing from the disclosure is null. If a source is down, the prior committed value is carried forward and marked stale:true.',
+      'Holdings/sectors are built by a separate monthly workflow from AMC portfolio disclosures; holdings.available=false means that AMC is not yet wired or its layout is unparsed.',
     ],
   };
 
@@ -169,6 +227,7 @@ async function main() {
   log('');
   log(`Wrote ${fundsPath} (${sizeKB(fundsPath)} KB)`);
   log(`Wrote ${catsPath} (${sizeKB(catsPath)} KB)`);
+  log(`Wrote ${benchPath} (${sizeKB(benchPath)} KB)`);
   log(`Wrote ${statusPath} (${sizeKB(statusPath)} KB)`);
   log('');
   log(`Counts: ${JSON.stringify(counts)}`);

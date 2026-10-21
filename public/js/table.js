@@ -87,11 +87,12 @@ export function renderTable(mount, funds, cats) {
   const head = `<th class="stick stick-0"><input type="checkbox" class="chk-all h-4 w-4 rounded border-slate-300 accent-indigo-600" ${allChecked ? 'checked' : ''}></th>` +
     cols.map((col) => {
       const active = state.sort.key === col.key;
+      // The sort caret lives on the bottom .th-meta row so the ?/arrow line up across every header.
       const caret = col.soon ? '' : active ? (state.sort.dir === 'asc' ? 'sort-asc' : 'sort-desc') : 'sort-caret';
       const align = col.align === 'left' ? 'text-left' : 'num';
       const stickCls = col.key === 'name' ? ' stick stick-1' : '';
-      const cls = `${align} ${col.soon ? '' : 'sortable'} ${caret} ${active ? 'text-indigo-600' : ''}${stickCls}`;
-      return `<th class="${cls}" data-key="${col.key}">${esc(col.label)} <span class="qmark" title="${esc(col.tip)}">?</span></th>`;
+      const cls = `${align} ${col.soon ? '' : 'sortable'} ${active ? 'text-indigo-600' : ''}${stickCls}`;
+      return `<th class="${cls}" data-key="${col.key}"><span class="th-label">${esc(col.label)}</span><span class="th-meta ${caret}"><span class="qmark" title="${esc(col.tip)}">?</span></span></th>`;
     }).join('');
 
   // Explicit widths (table-layout:fixed) keep every cell on one line; 40px lead col = checkbox.

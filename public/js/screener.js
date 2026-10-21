@@ -40,6 +40,7 @@ export function mountScreener(container) {
           <button id="btn-filters" class="ctl-btn">${ICON.filter}Filters<span id="filters-count" class="ctl-badge hidden"></span><span class="chev text-[10px]">▾</span></button>
           <button id="btn-steps" class="ctl-btn">${ICON.funnel}Screening steps<span id="steps-count" class="ctl-badge hidden"></span><span class="chev text-[10px]">▾</span></button>
           <span id="result-count" class="rounded-full bg-indigo-50 px-2 py-1 text-xs font-semibold text-indigo-600 tnum">—</span>
+          <button id="btn-estab" class="ctl-btn" title="Show only funds with at least a 3-year track record"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="h-3.5 w-3.5"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Established 3Y+</button>
           <div class="relative ml-auto">
             <button id="btn-cols" class="ctl-btn">${ICON.table}Columns<span class="chev text-[10px]">▾</span></button>
             <div id="col-panel" class="absolute right-0 z-30 mt-1 hidden max-h-80 w-56 overflow-y-auto rounded-xl bg-white p-2 shadow-xl ring-1 ring-slate-200"></div>
@@ -63,7 +64,7 @@ export function mountScreener(container) {
           </div>
           <div class="mt-3 flex flex-wrap gap-2">
             ${toggle('f-beats5y', '5Y beats category')}${toggle('f-beats10y', '10Y beats category')}
-            ${toggle('f-has5y', 'Has 5Y history')}${toggle('f-has10y', 'Has 10Y history')}
+            ${toggle('f-has3y', 'Has 3Y history')}${toggle('f-has5y', 'Has 5Y history')}${toggle('f-has10y', 'Has 10Y history')}
           </div>
           <div class="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3">
             <button id="btn-reset" class="rounded-lg bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-200">Reset all</button>
@@ -182,9 +183,11 @@ function wire() {
   root.querySelector('#f-agemin').addEventListener('input', (e) => { state.filters.ageMin = e.target.value === '' ? null : +e.target.value; scheduleRender(); });
   root.querySelector('#f-agemax').addEventListener('input', (e) => { state.filters.ageMax = e.target.value === '' ? null : +e.target.value; scheduleRender(); });
 
-  for (const [id, key] of [['f-beats5y', 'beats5y'], ['f-beats10y', 'beats10y'], ['f-has5y', 'has5y'], ['f-has10y', 'has10y']]) {
+  for (const [id, key] of [['f-beats5y', 'beats5y'], ['f-beats10y', 'beats10y'], ['f-has3y', 'has3y'], ['f-has5y', 'has5y'], ['f-has10y', 'has10y']]) {
     root.querySelector('#' + id).addEventListener('click', (e) => { state.filters[key] = !state.filters[key]; syncToggle(e.currentTarget, state.filters[key]); render(); });
   }
+  // Quick one-click "focus on funds with a track record" toggle next to the table.
+  root.querySelector('#btn-estab').addEventListener('click', () => { state.filters.has3y = !state.filters.has3y; render(); });
 
   root.querySelector('#btn-reset').addEventListener('click', () => { resetFilters(); selected.clear(); syncControls(); render(); });
   root.querySelector('#tbl-search').addEventListener('input', (e) => { state.filters.search = e.target.value; scheduleRender(); });
@@ -245,6 +248,7 @@ function syncControls() {
   root.querySelector('#f-agemax').value = f.ageMax ?? '';
   syncToggle(root.querySelector('#f-beats5y'), f.beats5y);
   syncToggle(root.querySelector('#f-beats10y'), f.beats10y);
+  syncToggle(root.querySelector('#f-has3y'), f.has3y);
   syncToggle(root.querySelector('#f-has5y'), f.has5y);
   syncToggle(root.querySelector('#f-has10y'), f.has10y);
 }
@@ -284,8 +288,9 @@ function renderKPIs() {
 
 function renderChips() {
   const chips = activeChips();
-  // Filters-popover badge counts everything except the inline category + search controls.
-  const popCount = chips.filter((c) => c.key !== 'peerGroup' && c.key !== 'search').length;
+  root.querySelector('#btn-estab').classList.toggle('ctl-btn-on', state.filters.has3y);
+  // Filters-popover badge counts everything except controls with their own entry point (category, search, Established).
+  const popCount = chips.filter((c) => !['peerGroup', 'search', 'has3y'].includes(c.key)).length;
   const badge = root.querySelector('#filters-count');
   badge.textContent = popCount; badge.classList.toggle('hidden', popCount === 0);
 

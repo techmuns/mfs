@@ -99,13 +99,18 @@
     #screener-table thead th{
       position:sticky;top:0;z-index:2;background:#eef2f8;color:#475569;
       box-shadow:inset 0 -1px 0 #cbd5e1;
-      white-space:normal;overflow:visible;vertical-align:bottom;line-height:1.2;
+      vertical-align:bottom;overflow:visible;
     }
+    /* uniform header: a wrapping label on top, then a single ?/sort row aligned at the bottom of every column */
+    #screener-table thead th .th-label{display:block;white-space:normal;line-height:1.15;font-weight:600}
+    #screener-table thead th .th-meta{display:block;margin-top:2px;line-height:1;white-space:nowrap;font-weight:400}
     #screener-table td.num,#screener-table th.num{text-align:right;font-variant-numeric:tabular-nums}
     /* sticky left columns (checkbox col 0, Fund col 1) keep a solid bg + edge shadow */
     #screener-table th.stick,#screener-table td.stick{position:sticky;z-index:1;background:#fff}
     #screener-table thead th.stick{z-index:4;background:#eef2f8}
     #screener-table .stick-0{left:0}
+    /* checkbox column: no ellipsis artifact, centred control */
+    #screener-table th.stick-0,#screener-table td.stick-0{overflow:visible;text-overflow:clip;text-align:center;padding-left:0;padding-right:0}
     #screener-table .stick-1{left:40px;box-shadow:1px 0 0 #e2e8f0}
     #screener-table tbody tr:hover td.stick-1{background:#eef2ff}
     #screener-table .fund-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

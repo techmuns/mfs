@@ -19,7 +19,7 @@ function lsSet(key, val) {
 export const DEFAULT_FILTERS = () => ({
   peerGroup: '', search: '',
   min5y: null, min10y: null, minSharpe: null, maxVol: null,
-  beats5y: false, beats10y: false, has5y: false, has10y: false,
+  beats5y: false, beats10y: false, has3y: false, has5y: false, has10y: false,
   ageMin: null, ageMax: null,
 });
 
@@ -51,7 +51,7 @@ export const state = {
   funds: [], categories: {}, status: null, benchmarks: {}, alerts: { events: [] },
   filters: DEFAULT_FILTERS(),
   funnel: DEFAULT_FUNNEL(),
-  sort: { key: 'y5', dir: 'desc' },
+  sort: { key: 'aum', dir: 'desc' }, // AUM is populated for ~99% of funds, so the first screen isn't all brand-new funds
   cols: [...DEFAULT_COLS],
   shortlist: new Set(lsGet(LS.shortlist, [])),
   compareFunds: [],
@@ -80,6 +80,7 @@ export function passesFilters(f, flt, cats) {
   if (flt.maxVol != null && !(f.risk.volatility != null && f.risk.volatility <= flt.maxVol)) return false;
   if (flt.beats5y && !(f.vsCategory.y5 && f.vsCategory.y5.ratio >= 1)) return false;
   if (flt.beats10y && !(f.vsCategory.y10 && f.vsCategory.y10.ratio >= 1)) return false;
+  if (flt.has3y && !f.history.has3y) return false;
   if (flt.has5y && !f.history.has5y) return false;
   if (flt.has10y && !f.history.has10y) return false;
   if (flt.ageMin != null && !(f.ageYears >= flt.ageMin)) return false;
@@ -170,6 +171,7 @@ export function activeChips() {
   if (f.maxVol != null) chips.push({ key: 'maxVol', label: `Vol ≤ ${(f.maxVol * 100).toFixed(0)}%` });
   if (f.beats5y) chips.push({ key: 'beats5y', label: '5Y beats category' });
   if (f.beats10y) chips.push({ key: 'beats10y', label: '10Y beats category' });
+  if (f.has3y) chips.push({ key: 'has3y', label: 'Established (3Y+)' });
   if (f.has5y) chips.push({ key: 'has5y', label: 'Has 5Y history' });
   if (f.has10y) chips.push({ key: 'has10y', label: 'Has 10Y history' });
   if (f.ageMin != null) chips.push({ key: 'ageMin', label: `Age ≥ ${f.ageMin}y` });

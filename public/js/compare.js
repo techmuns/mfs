@@ -6,7 +6,7 @@
 import { state, emit } from './state.js';
 import { esc, pct, num, fmtDate, groupColor, terFmt, aumFmt, ppFmt, vsFmt, ICON } from './meta.js';
 import { scoreOf, scoreColor } from './score.js';
-import { fetchNav, rebase, benchToSeries } from './navapi.js';
+import { fetchNav, rebase, rebaseAt, benchToSeries } from './navapi.js';
 import { growth10k, disposeChart } from './charts.js';
 
 const PALETTE = ['#6366f1', '#ec4899', '#0ea5e9', '#10b981', '#f59e0b'];
@@ -106,12 +106,12 @@ export function renderCompare(container) {
     const dropped = loaded.filter((x) => !x.n || !x.n.length).map((x) => x.f.name);
     if (!ok.length) { msgEl.innerHTML = '<span class="text-rose-500">Could not load NAV for the selected funds.</span>'; return; }
     const commonStart = Math.max(...ok.map((x) => x.n[0][0]));
-    const from = zoomStart || commonStart;
+    const from = zoomStart ? Math.max(zoomStart, commonStart) : commonStart; // never before the common start (₹10,000 guarantee)
     const seriesList = ok.map((x, i) => ({ name: shortName(x.f.name), color: PALETTE[loaded.indexOf(x) % PALETTE.length], data: rebase(x.n.filter((p) => p[0] >= from), 10000) }));
-    // optional benchmark overlay (use the first fund's benchmark)
+    // optional benchmark overlay (use the first fund's benchmark) — anchored to the SAME start date as the funds (FIX 4)
     if (showBench) {
       const bi = ok[0].f.benchmark && ok[0].f.benchmark.indexName, bench = bi ? (state.benchmarks || {})[bi] : null;
-      if (bench) seriesList.push({ name: bi + ' TRI', color: '#94a3b8', data: rebase(benchToSeries(bench).filter((p) => p[0] >= from), 10000) });
+      if (bench) seriesList.push({ name: bi + ' TRI', color: '#94a3b8', data: rebaseAt(benchToSeries(bench), from, 10000) });
     }
     growth10k(chartEl, seriesList);
     startEl.textContent = `aligned from ${fmtDate(new Date(commonStart).toISOString())} (common start)${zoomStart ? ' · zoomed to last correction' : ''}`;
@@ -121,8 +121,11 @@ export function renderCompare(container) {
   container.querySelector('#cmp-zoom').addEventListener('click', (e) => {
     if (zoomStart) { zoomStart = null; e.target.textContent = 'Zoom to last correction'; }
     else {
-      const ref = loaded && loaded.find((x) => x.n && x.n.length);
-      const corr = ref ? findLastCorrection(ref.n) : null;
+      // detect the correction WITHIN the common window so the zoom can't start before the common start
+      const okz = (loaded || []).filter((x) => x.n && x.n.length);
+      const commonStart = okz.length ? Math.max(...okz.map((x) => x.n[0][0])) : 0;
+      const ref = okz[0];
+      const corr = ref ? findLastCorrection(ref.n.filter((p) => p[0] >= commonStart)) : null;
       if (corr) { zoomStart = corr; e.target.textContent = 'Reset zoom'; }
       else { msgEl.textContent = 'No 10%+ correction found in the common window.'; return; }
     }

@@ -59,7 +59,7 @@ function renderHeader() {
           <span class="h-2 w-2 shrink-0 rounded-full" style="background:${groupColor(f.peerGroup)}"></span>
           <span class="min-w-0 flex-1"><span class="block truncate text-sm font-medium text-slate-700">${esc(f.name)}</span>
           <span class="block truncate text-[11px] text-slate-400">${esc(f.peerGroup)} · ${esc(f.amc || '')}</span></span>
-          <span class="tnum text-xs font-semibold ${f.returns.y5 >= 0 ? 'v-pos' : 'v-neg'}">${pct(f.returns.y5) ?? ''}</span></button>`).join('')
+          <span class="tnum text-xs font-semibold ${f.returns.y5 == null ? 'v-dim' : f.returns.y5 >= 0 ? 'v-pos' : 'v-neg'}">${pct(f.returns.y5) ?? '—'}</span></button>`).join('')
         : '<div class="px-3 py-3 text-sm text-slate-400">No matching fund.</div>';
       drop.classList.remove('hidden');
     }, 150);

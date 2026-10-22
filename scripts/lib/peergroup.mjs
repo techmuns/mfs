@@ -30,7 +30,7 @@ export const THEME_MAP = [
  * false match. AMFI scheme names start with the fund house, e.g. "Bank of India Manufacturing
  * & Infrastructure Fund" — without this, "bank" would mislabel it Banking & Financial.
  */
-function stripAmc(name, amc) {
+export function stripAmc(name, amc) {
   const n = (name || '').trim();
   if (!amc) return n;
   const core = amc.replace(/\s*mutual fund\s*$/i, '').trim(); // "Bank of India Mutual Fund" -> "Bank of India"
@@ -48,7 +48,7 @@ function stripAmc(name, amc) {
 export const INDEX_GROUP_MAP = [
   ['International', /nasdaq|s&\s*p\s*500|hang\s*seng|\bglobal\b|\bworld\b|developed|\bmsci\b|\bfang\b|\bnyse\b|emerging|\bchina\b|\bjapan\b|overseas/],
   ['Factor / Smart-Beta', /momentum|\bvalue\b|quality|\balpha\b|low\s*vol|volatility|equal\s*weight|\bfactor\b|multi[-\s]?factor|enhanced|\bedge\b|growth sector/],
-  ['Sectoral', /\bbank\b|banking|financ|\bbfsi\b|finserv|\bit\b|niftyit|infotech|technolog|\bdigital\b|internet|pharma|health|\bauto\b|\bev\b|mobility|\bfmcg\b|consum|\binfra|\benergy\b|\bpower\b|\bpsu\b|\bmetal|realty|\breit|\bmedia\b|\boil\b|\bgas\b|chemical|manufactur|defence|defense|railway|insurance|capital market|private bank|consumer durable|tourism|housing|logistics|transport/],
+  ['Sectoral', /\bbank\b|banking|financ|\bbfsi\b|finserv|\bit\b|niftyit|infotech|technolog|\bdigital\b|internet|pharma|health|\bauto\b|\bev\b|mobility|\bfmcg\b|consum|\binfra|\benergy\b|\bpower\b|\bpsu\b|\bmetal|commodit|realty|\breit|\bmedia\b|\boil\b|\bgas\b|chemical|manufactur|defence|defense|railway|insurance|capital market|private bank|consumer durable|tourism|housing|logistics|transport/],
   ['Mid & Small Cap', /midcap|mid\s*cap|smallcap|small\s*cap|midsmall|mid\s*&?\s*small|microcap|micro\s*cap/],
   ['Large Cap', /nifty\s*50\b|nifty50\b|nifty\s*index|next\s*50|nifty\s*100\b|nifty100\b|sensex|large\s*cap|largecap|\btop\s*\d+\b/],
   ['Broad Market', /nifty\s*200\b|nifty\s*500\b|nifty500\b|bse\s*500|bse\s*1000|total\s*market|multicap|multi\s*cap|\b750\b|\b1000\b/],

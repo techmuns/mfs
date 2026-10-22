@@ -5,6 +5,7 @@
 
 import { fetchTigzigMap, TIGZIG_SOURCE } from './tigzig.mjs';
 import { resolveBenchmark, fetchTRI, benchmarkReturns, monthlyDownsample, NSE_TRI_SOURCE } from './benchmark.mjs';
+import { stripAmc } from './peergroup.mjs';
 import { toISODate } from './dates.mjs';
 
 const isoToMs = (iso) => { const [y, m, d] = iso.split('-').map(Number); return Date.UTC(y, m - 1, d); };
@@ -18,20 +19,22 @@ const stale = (obj) => (obj ? { ...obj, stale: true } : null);
  * @param log         logger
  * @returns { byCode, benchmarksJson, coverage, indicesFetched, emptyIndices, warnings, sources }
  */
-export async function enrichFunds(funds, priorByCode, log = console.log) {
+export async function enrichFunds(funds, priorByCode, log = console.log, dataAsOf = null) {
   const warnings = [];
 
   // 1) tigzig disclosures (fail-soft) -----------------------------------------
   let tig = null;
-  try { tig = await fetchTigzigMap(); log(`tigzig: ${tig.size} schemes`); }
+  try { tig = await fetchTigzigMap({ asOfMs: dataAsOf ? isoToMs(dataAsOf) : undefined }); log(`tigzig: ${tig.size} schemes`); }
   catch (e) { warnings.push(`tigzig fetch failed (carrying prior): ${e.message}`); log('tigzig FAILED:', e.message); }
 
   // 2) resolve each fund's benchmark index ------------------------------------
+  // For index funds the benchmark is the tracked index: prefer the FILED benchmark, and match on
+  // the AMC-stripped name so an AMC like "Bajaj Finserv" can't be read as a sector (FIX 6).
   const resolved = new Map();
   const needed = new Set();
   for (const f of funds) {
     const filed = tig?.get(f.schemeCode)?.benchmarkFiled ?? priorByCode.get(f.schemeCode)?.benchmark?.filed ?? null;
-    const r = resolveBenchmark(filed, f.peerGroup, { isIndex: f.isIndex, name: f.name });
+    const r = resolveBenchmark(filed, f.peerGroup, { isIndex: f.isIndex, name: stripAmc(f.name, f.amc) });
     resolved.set(f.schemeCode, { r, filed });
     if (r && r.indexName) needed.add(r.indexName);
   }
@@ -87,6 +90,11 @@ export async function enrichFunds(funds, priorByCode, log = console.log) {
       exitLoad: t ? t.exitLoad : stale(prior?.exitLoad),
       riskometer: t ? t.riskometer : (prior?.riskometer ?? null),
       benchmark,
+      // identity fields (true launch date etc.) — used by build.mjs for inception + dedup.
+      allotmentDate: t ? t.allotmentDate : null,
+      tigName: t ? t.schemeName : null,
+      idcwPlan: t ? t.idcwPlan : null,
+      tigActive: t ? t.isActive : true,
     });
   }
 

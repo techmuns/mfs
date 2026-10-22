@@ -4,8 +4,8 @@
 
 import { state, inShortlist, toggleShortlist, emit } from './state.js';
 import { esc, pct, pctSigned, num, fmtDate, groupColor, terFmt, aumFmt, ppFmt, vsFmt, ICON } from './meta.js';
-import { composite, scoreOf, scoreColor, getWeights, setWeights, resetWeights, PILLAR_META, PILLAR_KEYS, explainPillar, DEFAULT_WEIGHTS } from './score.js';
-import { fetchNav, sliceYears, rebase, benchToSeries } from './navapi.js';
+import { composite, scoreOf, scoredPillars, scoreColor, getWeights, setWeights, resetWeights, PILLAR_META, PILLAR_KEYS, explainPillar, DEFAULT_WEIGHTS } from './score.js';
+import { fetchNav, sliceYears, rebase, benchToSeries, alignRebase } from './navapi.js';
 import { navBenchmarkOverlay, drawdownChart, disposeChart } from './charts.js';
 
 const RANGES = [['1Y', 1], ['3Y', 3], ['5Y', 5], ['Max', null]];
@@ -49,7 +49,7 @@ function scoreBreakdown(f) {
     <div class="flex items-center gap-3">
       <div class="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl text-white shadow-sm" style="background:${scoreColor(comp)}"><span class="font-display text-2xl font-extrabold tnum score-comp">${comp == null ? 'N/A' : Math.round(comp)}</span></div>
       <div class="min-w-0"><div class="font-display text-sm font-bold text-slate-700">Composite score</div>
-        <div class="text-xs text-slate-500">Percentile vs its peer group (n=${f.score.n}) across five pillars. Drag a weight to re-rank live.</div>
+        <div class="text-xs text-slate-500">Percentile vs its peer group (n=${f.score.n}) across ${scoredPillars(f)} of 5 pillars${scoreOf(f) == null ? ' — partial: not enough evidence for a composite yet' : ''}. Drag a weight to re-rank live.</div>
         <div class="mt-0.5 text-[11px] font-medium text-amber-600">Research only — not investment advice.</div></div>
     </div>
     <div class="mt-3 space-y-2 score-bars">${bars}</div>
@@ -77,15 +77,16 @@ function overviewTab(f) {
     <div class="space-y-3">
       ${f.isIndex ? `<div class="flex gap-2 rounded-xl bg-sky-50 p-2.5 text-xs ring-1 ring-inset ring-sky-100"><span>🎯</span><div><b class="text-sky-700">Passive index fund.</b> <span class="text-sky-700/80">Judge it on low fee + tight tracking — a benchmark excess near zero (slightly negative is normal, from fees) is good. It aims to match ${f.benchmark && f.benchmark.indexName ? esc(f.benchmark.indexName) : 'its index'}, not beat it.</span></div></div>` : ''}
       <div class="grid grid-cols-2 gap-2">
-        ${tile('Latest NAV', '₹' + num(f.latestNav, 2), fmtDate(f.latestNavDate))}
+        ${tile('Latest NAV', f.latestNav != null ? '₹' + num(f.latestNav, 2) : 'N/A', fmtDate(f.latestNavDate))}
         ${tile('Fund size', f.aum ? aumFmt(f.aum.cr) : 'N/A', f.aum ? 'as of ' + fmtDate(f.aum.asOf) : 'not disclosed')}
-        ${tile('TER (Direct)', f.costs ? terFmt(f.costs.terDirect) : 'N/A', f.costs ? 'Regular ' + terFmt(f.costs.terRegular) : '')}
-        ${tile('Age', num(f.ageYears, 1) + ' yrs', 'since ' + fmtDate(f.inceptionDate))}
+        ${tile('TER (Direct)', f.costs && f.costs.terDirect != null ? terFmt(f.costs.terDirect) : 'N/A', f.costs && f.costs.terRegular != null ? 'Regular ' + terFmt(f.costs.terRegular) : '')}
+        ${tile('Age', f.ageYears != null ? num(f.ageYears, 1) + ' yrs' : 'N/A', f.inceptionDate ? 'launched ' + fmtDate(f.inceptionDate) : '')}
       </div>
       <div class="rounded-xl bg-white p-3 ring-1 ring-slate-100 text-sm">
         <div class="flex justify-between py-1"><span class="text-slate-500">Category / peer group</span><span class="text-right font-medium text-slate-700">${esc(f.category)}<br><span class="text-xs">${esc(f.peerGroup)}</span></span></div>
         <div class="flex items-center justify-between border-t border-slate-100 py-1.5"><span class="text-slate-500">Riskometer</span>${riskPill(f.riskometer)}</div>
         <div class="flex justify-between border-t border-slate-100 py-1.5"><span class="text-slate-500">Benchmark</span><span class="text-right text-sm font-medium text-slate-700">${benchLine}</span></div>
+        ${f.navSince && f.inceptionBasis === 'allotment' ? `<div class="flex justify-between border-t border-slate-100 py-1.5"><span class="text-slate-500">Return history</span><span class="text-right font-medium text-slate-700">Direct-plan NAV since ${esc(fmtDate(f.navSince))}</span></div>` : ''}
         <div class="flex justify-between border-t border-slate-100 py-1.5"><span class="text-slate-500">AMC</span><span class="font-medium text-slate-700">${esc(f.amc || 'N/A')}</span></div>
       </div>
       ${warns.length ? `<div class="space-y-1.5">${warns.map(([t, d]) => `<div class="flex gap-2 rounded-xl bg-amber-50 p-2.5 text-xs ring-1 ring-inset ring-amber-100"><span>⚠️</span><div><b class="text-amber-700">${esc(t)}</b> <span class="text-amber-700/80">${esc(d)}</span></div></div>`).join('')}</div>` : ''}
@@ -161,12 +162,12 @@ function riskTab(f) {
 // ---- Fund Manager -----------------------------------------------------------
 function managerTab(f) {
   if (!f.manager || !f.manager.names.length) return '<div class="rounded-xl bg-slate-50 p-4 text-sm text-slate-400">Manager details not disclosed.</div>';
-  const sorted = [...f.manager.names].sort((a, b) => (b.tenureYears || 0) - (a.tenureYears || 0));
-  const lead = sorted[0];
-  const predates = f.score && f.score.pillars.manager.inputs.predatesRecord;
+  const ordered = f.manager.names; // tigzig lists the LEAD manager first (sleeve/co-managers follow)
+  const lead = ordered[0];
+  const predates = f.score && f.score.pillars && f.score.pillars.manager && f.score.pillars.manager.inputs.predatesRecord;
   return `<div class="space-y-3">
     ${predates ? `<div class="flex gap-2 rounded-xl bg-amber-50 p-3 text-xs ring-1 ring-inset ring-amber-100"><span>⚠️</span><div><b class="text-amber-700">The track record largely predates the lead manager.</b> <span class="text-amber-700/80">${esc(lead.name)} has ${lead.tenureYears}y tenure, but the fund shows a ${f.history.has10y ? '10' : '5'}-year record — read long-horizon numbers with that in mind.</span></div></div>` : ''}
-    ${sorted.map((m, i) => `<div class="flex items-center gap-3 rounded-xl bg-white p-3 ring-1 ring-slate-100">
+    ${ordered.map((m, i) => `<div class="flex items-center gap-3 rounded-xl bg-white p-3 ring-1 ring-slate-100">
       <div class="flex h-10 w-10 items-center justify-center rounded-full font-display font-bold text-white" style="background:${i === 0 ? '#4f46e5' : '#94a3b8'}">${esc((m.name || '?').slice(0, 1))}</div>
       <div class="min-w-0 flex-1"><div class="font-semibold text-slate-800">${esc(m.name)}${i === 0 ? '<span class="ml-1.5 rounded-full bg-indigo-50 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-600">Lead</span>' : ''}</div>
         <div class="text-xs text-slate-400">${m.since ? 'since ' + fmtDate(m.since) : 'join date N/A'}${m.tenureYears != null ? ' · ' + m.tenureYears + ' yrs' : ''}</div></div></div>`).join('')}
@@ -287,13 +288,14 @@ function wirePerf(body, f) {
     try {
       const nav = await fetchNav(f.schemeCode);
       const years = RANGES.find(([l]) => l === range)[1];
-      const fw = rebase(sliceYears(nav, years), 100);
-      if (!fw.length) { msg.textContent = 'No NAV history in this window.'; return; }
-      let bw = [], blabel = '';
+      const sliced = sliceYears(nav, years);
+      if (!sliced.length) { msg.textContent = 'No NAV history in this window.'; return; }
       const bi = f.benchmark && f.benchmark.indexName, bench = bi ? ctx().benchmarks[bi] : null;
-      if (bench) { bw = rebase(benchToSeries(bench).filter((p) => p[0] >= fw[0][0]), 100); blabel = bi + ' TRI'; }
+      // FIX 4: align fund (daily) + benchmark (monthly) to one shared anchor so both start at 100 on the same date.
+      const { fund: fw, bench: bw } = alignRebase(sliced, bench ? benchToSeries(bench) : [], 100);
+      const blabel = bench ? bi + ' TRI' : '';
       navBenchmarkOverlay(el, fw, bw, f.name.length > 22 ? f.name.slice(0, 20) + '…' : f.name, blabel);
-      msg.textContent = bench ? 'Live NAV (MFAPI) vs benchmark TRI · both rebased to 100' : (f.benchmark && f.benchmark.reason ? 'Benchmark N/A — ' + f.benchmark.reason : 'Live NAV (MFAPI) · rebased to 100');
+      msg.textContent = bench ? 'Live NAV (MFAPI) vs benchmark TRI · both rebased to 100 at a shared start date' : (f.benchmark && f.benchmark.reason ? 'Benchmark N/A — ' + f.benchmark.reason : 'Live NAV (MFAPI) · rebased to 100');
     } catch { msg.innerHTML = '<span class="text-rose-500">Could not load live NAV.</span>'; }
   };
   body.querySelectorAll('.pr-rng').forEach((b) => b.addEventListener('click', () => { range = b.dataset.range; body.querySelectorAll('.pr-rng').forEach((x) => x.className = 'pr-rng rounded-md px-2.5 py-1 text-slate-500'); b.className = 'pr-rng rounded-md px-2.5 py-1 bg-white text-indigo-600 shadow-sm'; draw(); }));

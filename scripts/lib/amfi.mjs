@@ -40,7 +40,9 @@ const DIVIDEND_MARKERS = /idcw|dividend|payout|reinvest|bonus/;
 // AMFI files passive INDEX funds under "Other Scheme - Index Funds" (not an Equity header), so
 // they are picked up as a separate pass. We keep only EQUITY index funds — debt / target-maturity
 // / commodity index trackers are excluded by name.
-const INDEX_EXCLUDE = /target maturity|g-?sec|gilt|\bsdl\b|\bbond\b|liquid|overnight|1d rate|money market|t-?bill|duration|debt|psu.*debt|banking.*psu|aaa|credit|corporate bond|floater|bharat bond|gold|silver|commodit/i;
+// gold/silver are commodities (excluded); "Nifty Commodities" is an EQUITY sector index (kept),
+// so we do NOT exclude on "commodit" — only on the precious-metal names (FIX 7).
+const INDEX_EXCLUDE = /target maturity|g-?sec|gilt|\bsdl\b|\bbond\b|liquid|overnight|1d rate|money market|t-?bill|duration|debt|psu.*debt|banking.*psu|aaa|credit|corporate bond|floater|bharat bond|gold|silver/i;
 
 /** True for the "Other Scheme - Index Funds" section header (open-endedness is checked separately). */
 function isIndexFundSection(rawCategory) {

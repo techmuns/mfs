@@ -6,12 +6,18 @@
 const MAX_EVENTS = 500;
 const MAX_DAYS = 90;
 
-const mgrSet = (f) => new Set(((f.manager && f.manager.names) || []).map((m) => m.name));
+import { normName, osa } from './tigzig.mjs';
+
+const mgrList = (f) => ((f.manager && f.manager.names) || []).map((m) => m.name);
 function primaryManager(f) {
   if (!f.manager || !f.manager.names || !f.manager.names.length) return null;
-  return [...f.manager.names].sort((a, b) => (b.tenureYears || 0) - (a.tenureYears || 0))[0].name;
+  return f.manager.names[0].name; // tigzig lists the LEAD manager first (not max-tenure)
 }
-const eqSet = (a, b) => a.size === b.size && [...a].every((x) => b.has(x));
+// Two manager names are the "same person" if they differ only by spacing/dots or a one-edit spelling
+// slip (e.g. "Gopal Agrawal" vs "Gopal Agarwal"), so a tigzig spelling flip never fakes a MANAGER_CHANGE.
+const sameName = (a, b) => { const x = normName(a), y = normName(b); return x === y || osa(x, y) <= 1; };
+const inList = (name, list) => list.some((x) => sameName(name, x));
+const sameRoster = (a, b) => a.length === b.length && a.every((n) => inList(n, b)) && b.every((n) => inList(n, a));
 const pct1 = (x) => (x * 100).toFixed(1);
 
 /**
@@ -21,13 +27,27 @@ const pct1 = (x) => (x * 100).toFixed(1);
  * @param status new status.json (for data-health + as-of date)
  * @param priorIds Set of event ids already recorded
  */
-export function computeAlertEvents(oldArr, newArr, status, priorIds) {
+export function computeAlertEvents(oldArr, newArr, status, priorIds, droppedCodes = new Set()) {
   const today = (status && status.data_as_of) || new Date().toISOString().slice(0, 10);
   const out = [];
-  const add = (ev) => { if (!priorIds.has(ev.id) && !out.some((e) => e.id === ev.id)) out.push({ date: today, ...ev }); };
 
   if (!oldArr || oldArr.length === 0) {
     return { baseline: true, events: [{ id: `TRACKING_STARTED:${today}`, date: today, type: 'TRACKING_STARTED', severity: 'info', title: '🔔 Alerts tracking started', detail: `Now monitoring ${newArr.length} funds — changes will appear here from the next refresh.` }] };
+  }
+
+  // One-time data-quality migration: the prior committed data predates this build's corrected fields
+  // (inceptionBasis is written for every fund from this release on). A diff of corrected-vs-buggy data
+  // would fabricate per-fund "events" (benchmark/peer-group remaps, deduped share-classes, manager
+  // respellings) that never happened at the funds — so during that one build we fold those classes into
+  // a single honest note and let normal per-fund detection resume next refresh (prior then has the field).
+  const migrating = !oldArr.some((f) => 'inceptionBasis' in f);
+  const CORRECTION_TYPES = new Set(['NEW_FUND', 'FUND_CLOSED', 'MANAGER_CHANGE', 'RECATEGORIZED', 'BENCHMARK_CHANGE']);
+  const add = (ev) => {
+    if (migrating && CORRECTION_TYPES.has(ev.type)) return; // folded into the DATA_CORRECTIONS note
+    if (!priorIds.has(ev.id) && !out.some((e) => e.id === ev.id)) out.push({ date: today, ...ev });
+  };
+  if (migrating) {
+    out.push({ id: `DATA_CORRECTIONS:${today}`, date: today, type: 'DATA_HEALTH', severity: 'info', title: '🔧 Data quality update', detail: 'This refresh corrected several data-mapping issues: benchmark indices remapped to the exact index each fund tracks, duplicate share-classes merged, and fund-manager attribution improved. These are corrections to our data — not changes made by the funds. Per-fund change alerts resume next refresh.' });
   }
 
   const oldByCode = new Map(oldArr.map((f) => [f.schemeCode, f]));
@@ -48,6 +68,7 @@ export function computeAlertEvents(oldArr, newArr, status, priorIds) {
     add({ id: `NEW_FUND:${f.schemeCode}`, type: 'NEW_FUND', severity: 'notable', schemeCode: f.schemeCode, fundName: f.name, title: `🆕 New fund added — ${f.name}`, detail: `${f.peerGroup}${f.amc ? ' · ' + f.amc : ''}` });
   }
   for (const f of oldArr) if (!newByCode.has(f.schemeCode)) {
+    if (droppedCodes.has(f.schemeCode)) continue; // merged into a kept share-class by dedup — it did not close
     add({ id: `FUND_CLOSED:${f.schemeCode}`, type: 'FUND_CLOSED', severity: 'warning', schemeCode: f.schemeCode, fundName: f.name, title: `⚠ Fund no longer listed — ${f.name}`, detail: 'The scheme dropped out of the universe (merged or closed).' });
   }
 
@@ -56,13 +77,14 @@ export function computeAlertEvents(oldArr, newArr, status, priorIds) {
     if (!of) continue;
     const base = { schemeCode: nf.schemeCode, fundName: nf.name };
 
-    // MANAGER_CHANGE
+    // MANAGER_CHANGE (compare rosters by person, so a spelling flip is not a change)
     if (of.manager && nf.manager) {
-      const oldM = mgrSet(of), newM = mgrSet(nf);
-      if (!eqSet(oldM, newM)) {
-        const joined = [...newM].filter((m) => !oldM.has(m)), left = [...oldM].filter((m) => !newM.has(m));
-        const leadChanged = primaryManager(of) !== primaryManager(nf);
-        add({ id: `MANAGER_CHANGE:${nf.schemeCode}:${[...newM].sort().join('|')}`, type: 'MANAGER_CHANGE', severity: leadChanged ? 'notable' : 'info', ...base, title: `👤 Manager change — ${nf.name}`, detail: [joined.length ? 'Joined: ' + joined.join(', ') : '', left.length ? 'Left: ' + left.join(', ') : '', leadChanged ? `Lead manager now ${primaryManager(nf)}` : ''].filter(Boolean).join(' · ') });
+      const oldM = mgrList(of), newM = mgrList(nf);
+      if (!sameRoster(oldM, newM)) {
+        const joined = newM.filter((m) => !inList(m, oldM)), left = oldM.filter((m) => !inList(m, newM));
+        const op = primaryManager(of), np = primaryManager(nf);
+        const leadChanged = !(op && np && sameName(op, np));
+        add({ id: `MANAGER_CHANGE:${nf.schemeCode}:${[...newM].map(normName).sort().join('|')}`, type: 'MANAGER_CHANGE', severity: leadChanged ? 'notable' : 'info', ...base, title: `👤 Manager change — ${nf.name}`, detail: [joined.length ? 'Joined: ' + joined.join(', ') : '', left.length ? 'Left: ' + left.join(', ') : '', leadChanged ? `Lead manager now ${np}` : ''].filter(Boolean).join(' · ') });
       }
     }
     // RECATEGORIZED

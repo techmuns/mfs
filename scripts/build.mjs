@@ -17,7 +17,8 @@ import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
-import { toISODate } from './lib/dates.mjs';
+import { toISODate, daysBetween, DAYS_PER_YEAR } from './lib/dates.mjs';
+const isoToMs = (iso) => { const [y, m, d] = iso.split('-').map(Number); return Date.UTC(y, m - 1, d); };
 import { pool } from './lib/http.mjs';
 import { AMFI_URL, fetchAmfiNavAll, parseAmfiEquityUniverse } from './lib/amfi.mjs';
 import { fetchScheme, toNavSeries } from './lib/mfapi.mjs';
@@ -70,6 +71,32 @@ function readPriorAlerts() {
   catch { return { events: [] }; }
 }
 
+// FIX 9 — collapse genuine duplicate share-classes: the same fund listed twice under two scheme
+// codes with near-identical NAV (within 2%). Groups whose NAVs genuinely differ (e.g. Sundaram
+// Small Cap's two distinct funds ₹38 vs ₹311) are kept intact. Within a duplicate group we keep the
+// Growth share-class (tigzig plan without IDCW/dividend), then the active one, then the lowest code.
+function dedupeFunds(funds, enrich, log) {
+  const norm = (n) => (n || '').toLowerCase().replace(/\(.*?\)/g, '')
+    .replace(/\b(direct|regular|growth|idcw|dividend|payout|reinvest|plan|option|fund)\b/g, '')
+    .replace(/[^a-z0-9]+/g, ' ').trim();
+  const groups = new Map();
+  for (const f of funds) { const k = norm(f.name) + '||' + (f.amc || ''); if (!groups.has(k)) groups.set(k, []); groups.get(k).push(f); }
+  const drop = new Set();
+  for (const [, g] of groups) {
+    if (g.length < 2) continue;
+    const navs = g.map((f) => f.latestNav).filter(Number.isFinite);
+    if (navs.length < 2 || (Math.max(...navs) - Math.min(...navs)) / Math.max(...navs) >= 0.02) continue; // genuinely distinct — keep all
+    const keep = [...g].sort((a, b) => {
+      const ea = enrich.byCode.get(a.schemeCode) || {}, eb = enrich.byCode.get(b.schemeCode) || {};
+      if (!!ea.idcwPlan !== !!eb.idcwPlan) return ea.idcwPlan ? 1 : -1; // Growth plan first
+      if (!!ea.tigActive !== !!eb.tigActive) return ea.tigActive ? -1 : 1; // active first
+      return a.schemeCode - b.schemeCode;
+    })[0];
+    for (const f of g) if (f !== keep) { drop.add(f.schemeCode); log(`  dedup: dropping [${f.schemeCode}] ${f.name} — duplicate share-class of [${keep.schemeCode}]`); }
+  }
+  return { funds: drop.size ? funds.filter((f) => !drop.has(f.schemeCode)) : funds, dropped: drop };
+}
+
 async function main() {
   const startedAt = Date.now();
   mkdirSync(DATA_DIR, { recursive: true });
@@ -109,8 +136,7 @@ async function main() {
         plan: u.plan,
         option: u.option,
         isin: u.isin || (raw.meta && raw.meta.isin_growth) || null,
-        inceptionDate: toISODate(m.inceptionDate),
-        ageYears: m.ageYears,
+        navSince: toISODate(m.inceptionDate), // first Direct-plan NAV date — drives returns/risk (unchanged); true launch comes from tigzig allotment
         latestNav: m.latestNav,
         latestNavDate: toISODate(m.latestNavDate),
         returns: m.returns,
@@ -124,7 +150,7 @@ async function main() {
     (done, total) => { if (done % 50 === 0 || done === total) log(`  ${done}/${total}`); },
   );
 
-  const funds = [];
+  let funds = [];
   const failures = [];
   for (let i = 0; i < results.length; i++) {
     const r = results[i];
@@ -146,7 +172,8 @@ async function main() {
   log('Enriching with disclosures + benchmark TRI ...');
   const priorFunds = readPriorFundsArray();                       // "yesterday" — for carry-forward + alerts
   const priorByCode = new Map(priorFunds.map((f) => [f.schemeCode, f]));
-  const enrich = await enrichFunds(funds, priorByCode, log);
+  const enrich = await enrichFunds(funds, priorByCode, log, dataAsOf);
+  const dataAsOfMs = isoToMs(dataAsOf);
   for (const f of funds) {
     const e = enrich.byCode.get(f.schemeCode);
     f.benchmark = e.benchmark;
@@ -155,7 +182,16 @@ async function main() {
     f.manager = e.manager;
     f.exitLoad = e.exitLoad;
     f.riskometer = e.riskometer;
+    // True inception from tigzig allotment (not the 2013 Direct-plan NAV start); fall back to the
+    // NAV start and label it honestly. Returns/risk still use navSince (unchanged).
+    if (e.allotmentDate) { f.inceptionDate = e.allotmentDate; f.inceptionBasis = 'allotment'; }
+    else { f.inceptionDate = f.navSince; f.inceptionBasis = 'nav'; }
+    f.ageYears = +(daysBetween(isoToMs(f.inceptionDate), dataAsOfMs) / DAYS_PER_YEAR).toFixed(1);
   }
+  // Collapse genuine duplicate share-classes (same fund, two scheme codes, near-identical NAV).
+  const dedup = dedupeFunds(funds, enrich, log);
+  funds = dedup.funds;
+  const droppedCodes = dedup.dropped; // for alerts: a deduped share-class merged, it did not close
   const benchPath = writeJson('benchmarks.json', enrich.benchmarksJson);
   log(`Benchmark TRI: ${enrich.indicesFetched.length} indices fetched${enrich.emptyIndices.length ? `, ${enrich.emptyIndices.length} empty: ${enrich.emptyIndices.join(', ')}` : ''}`);
   log(`Coverage: ${JSON.stringify(enrich.coverage)}`);
@@ -217,14 +253,17 @@ async function main() {
       'NAV "on/before" a date walks back to the nearest trading day — missing days are never interpolated. Insufficient history => null (N/A), never 0.',
       'Benchmark: Total Return Index (TRI) from NSE Indices. benchmark.basis="filed" uses the scheme\'s own filed benchmark; "basis"="category" means the filed benchmark is a non-NSE index (e.g. a BSE index) and a peer-group Nifty proxy was used (never a silent substitution). No sound mapping (e.g. Thematic: Other, International) => benchmark N/A with a reason. Excess = fund CAGR − benchmark CAGR over the same windows; returns are already net of fees so TER is not deducted again.',
       'Fees (TER), AUM, fund managers, exit load and riskometer are AMFI/SEBI disclosures via tigzig, each stamped with the disclosure as-of date; a field missing from the disclosure is null. If a source is down, the prior committed value is carried forward and marked stale:true.',
-      'Composite score (fund.score): each pillar is the fund\'s percentile within its peer group (Manager pillar is an absolute tenure mapping). The browser recombines pillars with adjustable weights; a pillar with no usable inputs is null and excluded. Research only — not investment advice.',
+      'inceptionDate is the fund\'s TRUE launch (tigzig ssd_allotment_date); inceptionBasis="nav" marks funds where that was unavailable and the first Direct-plan NAV date (navSince) is used instead. Returns/risk are always computed from the NAV history (navSince onward) and are unaffected.',
+      'Lead fund manager is the FIRST-listed manager (tigzig lists the lead first; sleeve/co-managers follow). The `since` date is a SEBI (re-)notification date, so tenure is a floor computed against data_as_of (deterministic). When the lead\'s tenure can\'t be trusted (unknown, or a recent re-notification on a long-record fund) the manager pillar is null (insufficient data) rather than a fabricated/penalised score.',
+      'Composite score (fund.score): each pillar is the fund\'s percentile within its peer group (Manager pillar is an absolute tenure mapping). The browser recombines pillars with adjustable weights; a pillar with no usable inputs is null and excluded. A composite needs >= 3 scored pillars (or pillars covering >= 50% of weight), else it is null ("partial") so a thinly-evidenced fund is not ranked against a fully-evidenced one. Research only — not investment advice.',
+      'vs-category is N/A when the peer group is too small to be meaningful (sample size < 5) or when a negative fund return would produce a misleading negative "×" multiple (the percentage-point gap is still shown). Duplicate share-classes (same fund, two scheme codes, near-identical NAV) are collapsed so category averages are not double-counted.',
       'alerts.json is the "what\'s new" feed: each build diffs the previous committed funds.json against the new data and records plain-English change events (deduped, newest first, ~90 days / 500 max).',
     ],
   };
 
   // 6) "What's new" alerts: diff the previous committed funds.json against the new data.
   const priorAlerts = readPriorAlerts();
-  const alertResult = computeAlertEvents(priorFunds, funds, status, new Set((priorAlerts.events || []).map((e) => e.id)));
+  const alertResult = computeAlertEvents(priorFunds, funds, status, new Set((priorAlerts.events || []).map((e) => e.id)), droppedCodes);
   const alertsOut = mergeAlerts(priorAlerts, alertResult, status.generated_at);
   const alertsPath = writeJson('alerts.json', alertsOut);
   log(`Alerts: ${alertResult.baseline ? 'baseline (first run)' : alertResult.events.length + ' new event(s)'}; ${alertsOut.count} in feed`);

@@ -283,7 +283,7 @@ function renderKPIs() {
     item('#4f46e5', 'Funds in view', String(scopeCount()), pgLabel) +
     item('#7c3aed', 'Passing filters', String(vis.length), 'after filters + screening steps') +
     item('#f59e0b', 'Best 5Y return', best ? pct(best.returns.y5) : '—', best ? best.name : 'no fund with 5Y') +
-    item('#0ea5e9', 'Category avg 5Y', catAvg != null ? pct(catAvg) : '—', catAvgLabel);
+    item('#0ea5e9', (pg && state.categories[pg]) ? 'Category avg 5Y' : 'Avg 5Y (in view)', catAvg != null ? pct(catAvg) : '—', catAvgLabel);
 }
 
 function renderChips() {
@@ -355,9 +355,10 @@ function renderCharts() {
   const body = root.querySelector('#charts-body');
   if (!body || body.classList.contains('hidden')) return; // only draw when the panel is open
   categoryBar(root.querySelector('#chart-cat'), state.categories);
-  const base = filteredBase();
-  topFundsBar(root.querySelector('#chart-top'), base.length ? base : state.funds);
-  rollingRange(root.querySelector('#chart-roll'), base.length ? base : state.funds);
+  const vis = visibleFunds(); // respect the elimination funnel, like the table / KPIs / export
+  const set = vis.length ? vis : state.funds;
+  topFundsBar(root.querySelector('#chart-top'), set);
+  rollingRange(root.querySelector('#chart-roll'), set);
 }
 
 function renderTableView() {

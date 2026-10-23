@@ -17,29 +17,44 @@ const pctLow = (v, values) => { const p = pctHigh(v, values); return p == null ?
 const collect = (members, get) => members.map(get).filter((x) => x != null && isFinite(x));
 const avg = (arr) => { const a = arr.filter((x) => x != null && isFinite(x)); return a.length ? a.reduce((s, x) => s + x, 0) / a.length : null; };
 
+// tigzig lists the LEAD manager FIRST (sleeve / co-managers follow), so the first entry is the
+// real primary — never the max-tenure pick, which selects a recently-notified sleeve manager (FIX 2).
 function primaryManager(f) {
   if (!f.manager || !f.manager.names || !f.manager.names.length) return null;
-  return [...f.manager.names].sort((a, b) => (b.tenureYears || 0) - (a.tenureYears || 0))[0];
+  return f.manager.names[0];
 }
 
-// Manager pillar: absolute map of the primary manager's tenure (>=7y -> 100 down to <1y -> 20),
-// with a penalty when the fund's multi-year record largely predates that manager.
+// Manager pillar: absolute map of the lead manager's tenure (>=7y -> 100 down to <1y -> 20).
+// tigzig `since` is a (re-)notification date: on a fund with a long record a recent `since` is
+// almost always a re-notification, not a genuinely new lead — so when tenure can't be trusted we
+// DON'T penalise and DON'T fabricate a stability score; the pillar is "insufficient data" (null) (FIX 2).
 function managerScore(f) {
   const pm = primaryManager(f);
-  if (!pm || pm.tenureYears == null) return { score: null, inputs: { primaryManager: pm ? pm.name : null, tenureYears: pm ? pm.tenureYears : null, predatesRecord: null } };
-  let s = Math.max(20, Math.min(100, (pm.tenureYears / 7) * 100));
-  const predates = !!(f.history && f.history.has5y && pm.tenureYears < 3);
-  if (predates) s *= 0.6;
-  return { score: s, inputs: { primaryManager: pm.name, tenureYears: pm.tenureYears, predatesRecord: predates } };
+  if (!pm) return { score: null, inputs: { primaryManager: null, tenureYears: null, predatesRecord: false, insufficient: true } };
+  const t = pm.tenureYears;
+  const unreliable = t == null || (f.history && f.history.has5y && t < 3);
+  if (unreliable) return { score: null, inputs: { primaryManager: pm.name, tenureYears: t, predatesRecord: false, insufficient: true } };
+  const s = Math.max(20, Math.min(100, (t / 7) * 100));
+  return { score: s, inputs: { primaryManager: pm.name, tenureYears: t, predatesRecord: false } };
 }
 
+// Evidence floor: a composite needs >= 3 scored pillars OR pillars covering >= 50% of total weight,
+// so a 1-2 pillar fund isn't ranked against fully-evidenced funds — it shows as partial/N/A (FIX 5).
 export function compositeFromPillars(pillars, weights = DEFAULT_WEIGHTS) {
-  let wsum = 0, acc = 0;
+  let wsum = 0, acc = 0, nScored = 0;
   for (const [k, w] of Object.entries(weights)) {
     const p = pillars[k];
-    if (p && p.score != null && isFinite(p.score)) { acc += p.score * w; wsum += w; }
+    if (p && p.score != null && isFinite(p.score) && w > 0) { acc += p.score * w; wsum += w; nScored++; }
   }
-  return wsum > 0 ? acc / wsum : null;
+  const totalW = Object.values(weights).reduce((s, x) => s + x, 0);
+  if (wsum <= 0 || !(nScored >= 3 || wsum >= totalW * 0.5)) return null;
+  return acc / wsum;
+}
+
+/** Number of pillars that carry a usable score (for honest "k/5 pillars" copy). */
+export function scoredPillarCount(pillars) {
+  if (!pillars) return 0;
+  return Object.values(pillars).filter((p) => p && p.score != null && isFinite(p.score)).length;
 }
 
 function scoreFund(f, V) {

@@ -65,6 +65,7 @@ const INDEX_TRACK_MAP = [
   [/oil\s*&?\s*gas/i, 'NIFTY OIL & GAS'],
   [/\benergy\b|\bpower\b/i, 'NIFTY ENERGY'],
   [/\bmetal/i, 'NIFTY METAL'],
+  [/commodit/i, 'NIFTY COMMODITIES'],
   [/realty|\breit/i, 'NIFTY REALTY'],
   [/\bmedia\b/i, 'NIFTY MEDIA'],
   [/manufactur/i, 'NIFTY INDIA MANUFACTURING'],
@@ -131,12 +132,18 @@ export function normalizeFiled(filed) {
 export function resolveBenchmark(filed, peerGroup, opts = {}) {
   const { isIndex, name } = opts;
   if (isIndex) {
-    const info = indexTrack(name, peerGroup);
-    if (info === 'overseas') return { overseas: true };
-    if (info === 'na') return null;
-    if (info) return { indexName: info, basis: 'index' };
-    const d = normalizeFiled(filed); // unrecognised name → the fund's own filed benchmark, else N/A
-    return d ? { indexName: d, basis: 'filed' } : null;
+    const n = (name || '').toLowerCase(); // caller passes the AMC-stripped name (FIX 6)
+    if (OVERSEAS_RE.test(n) || peerGroup === 'Index: International') return { overseas: true };
+    if (peerGroup === 'Index: Factor / Smart-Beta' || peerGroup === 'Index: Other') return null; // specific TRI not carried → N/A, never a proxy
+    // A passive fund legally tracks the index named in its OWN title, so the name is authoritative.
+    // The filed field is secondary: tigzig's ssd_benchmark_tier1_std / amfi_daily_benchmark_filed
+    // each carry occasional errors (e.g. a Nifty 50 fund filed as "Nifty Next 50"), and they even
+    // disagree with each other — but the scheme name is never wrong about which index it tracks.
+    const info = indexTrack(n, peerGroup);
+    if (info && info !== 'overseas' && info !== 'na') return { indexName: info, basis: 'index' };
+    const d = normalizeFiled(filed); // name didn't name a carried index → fall back to the filed benchmark
+    if (d) return { indexName: d, basis: 'filed' };
+    return null;
   }
   const direct = normalizeFiled(filed);
   if (direct) return { indexName: direct, basis: 'filed' };

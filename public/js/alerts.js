@@ -57,10 +57,11 @@ export function openBell() {
   const root = document.getElementById('bell-root');
   const ev = events();
   const seenId = lastSeen();
-  const unreadIdx = seenId ? ev.findIndex((x) => x.id === seenId) : ev.length;
+  let unreadIdx = seenId ? ev.findIndex((x) => x.id === seenId) : ev.length;
+  if (unreadIdx < 0) unreadIdx = ev.length; // seen marker rolled off the feed → treat all as unread (mirror unreadCount)
   const recent = ev.slice(0, 20);
   const body = recent.length
-    ? recent.map((e, i) => eventRow(e, seenId ? i < unreadIdx : true)).join('')
+    ? recent.map((e, i) => eventRow(e, i < unreadIdx)).join('')
     : `<div class="px-4 py-10 text-center text-sm text-slate-400">${ICON.star}<div class="mt-2">Nothing new yet. Changes to funds — managers, fees, risk, big NAV moves — will show up here each day.</div></div>`;
   root.innerHTML = `<div class="bell-backdrop fixed inset-0 z-[55]"></div>
     <div class="absolute right-0 top-11 z-[56] w-[360px] max-w-[92vw] overflow-hidden rounded-2xl bg-white shadow-2xl ring-1 ring-slate-200">

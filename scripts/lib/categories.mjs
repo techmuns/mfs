@@ -67,22 +67,30 @@ export function computeCategories(funds, asOf) {
   return out;
 }
 
-function vs(fundVal, categoryMean) {
+// Minimum peer-group sample for a meaningful "vs category" comparison. Below this, a fund is
+// essentially compared with itself (e.g. a group of 1), so the ratio/gap are N/A with a reason.
+const MIN_PEERS = 5;
+
+function vs(fundVal, categoryMean, n) {
+  if (n != null && n < MIN_PEERS) return { ratio: null, ppGap: null, reason: `peer group too small (n=${n})` };
   if (fundVal == null || categoryMean == null) return { ratio: null, ppGap: null };
-  return {
-    ratio: categoryMean > 0 ? fundVal / categoryMean : null, // N/A when category mean <= 0
-    ppGap: fundVal - categoryMean, // decimal difference; the page renders it as percentage points
-  };
+  // A negative multiple (fund return < 0 while peers average > 0) is misleading: show the pp gap,
+  // but mark the "×" ratio N/A.
+  const ratio = categoryMean > 0 && fundVal >= 0 ? fundVal / categoryMean : null;
+  const out = { ratio, ppGap: fundVal - categoryMean };
+  if (ratio == null) out.reason = 'negative return vs positive peer average';
+  return out;
 }
 
 /** Attach `vsCategory` (ratio + percentage-point gap vs the PEER-GROUP MEAN) for 3Y/5Y/10Y. */
 export function attachVsCategory(funds, categories) {
   for (const f of funds) {
-    const mean = categories[f.peerGroup] ? categories[f.peerGroup].mean : null;
+    const cat = categories[f.peerGroup] || null;
+    const mean = cat ? cat.mean : null, ss = cat ? cat.sampleSize : null;
     f.vsCategory = {
-      y3: vs(f.returns.y3, mean ? mean.y3 : null),
-      y5: vs(f.returns.y5, mean ? mean.y5 : null),
-      y10: vs(f.returns.y10, mean ? mean.y10 : null),
+      y3: vs(f.returns.y3, mean ? mean.y3 : null, ss ? ss.y3 : null),
+      y5: vs(f.returns.y5, mean ? mean.y5 : null, ss ? ss.y5 : null),
+      y10: vs(f.returns.y10, mean ? mean.y10 : null, ss ? ss.y10 : null),
     };
   }
 }

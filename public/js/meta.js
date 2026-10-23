@@ -64,9 +64,10 @@ export function fmtDate(iso) {
 
 /** "5Y vs category" cell text: "1.08× +0.9pp" (or "N/A"). */
 export function vsFmt(vs) {
-  if (!vs || vs.ratio == null) return null;
-  const pp = vs.ppGap == null ? '' : ` ${vs.ppGap >= 0 ? '+' : ''}${(vs.ppGap * 100).toFixed(1)}pp`;
-  return `${vs.ratio.toFixed(2)}×${pp}`;
+  if (!vs) return null;
+  const pp = vs.ppGap == null ? null : `${vs.ppGap >= 0 ? '+' : ''}${(vs.ppGap * 100).toFixed(1)}pp`;
+  if (vs.ratio == null) return pp; // × ratio N/A (negative return, or peer group too small) → show the pp gap alone
+  return `${vs.ratio.toFixed(2)}×${pp ? ' ' + pp : ''}`;
 }
 
 // ---- heat-map grading ------------------------------------------------------
@@ -119,8 +120,8 @@ export const COLUMNS = [
   { key: 'roll3y', label: '3Y Rolling', tip: G.roll3, align: 'right', group: 'core', w: 92, get: (f) => (f.rolling.y3 ? f.rolling.y3.avg : null), fmt: pct, grade: 'high' },
   { key: 'roll5y', label: '5Y Rolling', tip: 'Average 5-year return across many start dates.', align: 'right', group: 'extra', w: 92, get: (f) => (f.rolling.y5 ? f.rolling.y5.avg : null), fmt: pct, grade: 'high' },
   { key: 'pctPos', label: '% Positive', tip: 'Share of 3-year windows that ended in a gain. 100% = never lost over 3 years.', align: 'right', group: 'extra', w: 96, get: (f) => (f.rolling.y3 ? f.rolling.y3.pctPositive : null), fmt: pct, grade: 'high' },
-  { key: 'vs5y', label: '5Y vs Category', tip: G.vs, align: 'right', group: 'core', w: 128, get: (f) => f.vsCategory.y5, fmt: vsFmt, grade: 'vs', gradeVal: (f) => (f.vsCategory.y5 ? f.vsCategory.y5.ratio : null), sortVal: (f) => (f.vsCategory.y5 ? f.vsCategory.y5.ppGap : null) },
-  { key: 'vs10y', label: '10Y vs Category', tip: G.vs, align: 'right', group: 'core', w: 132, get: (f) => f.vsCategory.y10, fmt: vsFmt, grade: 'vs', gradeVal: (f) => (f.vsCategory.y10 ? f.vsCategory.y10.ratio : null), sortVal: (f) => (f.vsCategory.y10 ? f.vsCategory.y10.ppGap : null) },
+  { key: 'vs5y', label: '5Y vs Category', tip: G.vs, align: 'right', group: 'core', w: 128, get: (f) => f.vsCategory.y5, fmt: vsFmt, grade: 'vs', gradeVal: (f) => (f.vsCategory.y5 ? f.vsCategory.y5.ratio : null), sortVal: (f) => (f.vsCategory.y5 ? f.vsCategory.y5.ratio : null), naReason: (f) => (f.vsCategory.y5 && f.vsCategory.y5.reason) || 'no 5Y comparison' },
+  { key: 'vs10y', label: '10Y vs Category', tip: G.vs, align: 'right', group: 'core', w: 132, get: (f) => f.vsCategory.y10, fmt: vsFmt, grade: 'vs', gradeVal: (f) => (f.vsCategory.y10 ? f.vsCategory.y10.ratio : null), sortVal: (f) => (f.vsCategory.y10 ? f.vsCategory.y10.ratio : null), naReason: (f) => (f.vsCategory.y10 && f.vsCategory.y10.reason) || 'no 10Y comparison' },
   { key: 'benchExcess', label: 'Benchmark Excess', tip: '5-year return minus the fund’s benchmark (Total Return Index) over the same period. Positive = beat the index. Source: NSE Indices TRI.', align: 'right', group: 'core', w: 128, get: (f) => (f.benchmark && f.benchmark.excess ? f.benchmark.excess.y5 : null), fmt: ppFmt, grade: 'high', naReason: (f) => (f.benchmark && f.benchmark.reason) || 'no 5Y benchmark' },
   { key: 'sharpe', label: 'Sharpe', tip: G.sharpe, align: 'right', group: 'core', w: 80, get: (f) => f.risk.sharpe, fmt: (v) => num(v, 2), grade: 'high' },
   { key: 'sortino', label: 'Sortino', tip: 'Like Sharpe but only penalises downside swings. Higher is better.', align: 'right', group: 'extra', w: 80, get: (f) => f.risk.sortino, fmt: (v) => num(v, 2), grade: 'high' },

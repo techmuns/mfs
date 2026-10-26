@@ -6,13 +6,14 @@
   <title>Mutual Fund Screener — Indian Equity</title>
   <meta name="description" content="A free, colourful, research-only screener for Indian equity mutual funds: returns, risk, rolling consistency and peer-group comparisons computed from real NAV history." />
 
+  <!-- Fetch the entry module early so its import graph resolves in parallel with the stylesheet/fonts. -->
+  <link rel="modulepreload" href="./js/app.js" />
+
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap" rel="stylesheet" />
 
   <script src="https://cdn.tailwindcss.com/3.4.16"></script>
-  <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
   <script>
     tailwind.config = { theme: { extend: { fontFamily: {
       sans: ['Inter', 'system-ui', 'sans-serif'],

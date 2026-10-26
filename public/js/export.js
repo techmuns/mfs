@@ -1,9 +1,27 @@
 // export.js — CSV (current view) + a self-contained Excel analysis workbook.
 // The Excel file is a proper Excel TABLE (ListObject) with AutoFilter on every column and a
 // SUBTOTAL summary that recalculates as the user filters INSIDE Excel — so the dashboard's
-// filtering carries over. ExcelJS is loaded as a global <script> (window.ExcelJS).
+// filtering carries over. ExcelJS (~900KB) is loaded ON DEMAND the first time the user exports,
+// never on the initial page load; if it can't load, export falls back to CSV.
 
 import { scoreOf } from './score.js';
+
+const EXCELJS_SRC = 'https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js';
+let excelPromise = null;
+/** Load ExcelJS on first export and cache the promise; resolves null if it can't load (→ CSV fallback). */
+function ensureExcelJS() {
+  if (window.ExcelJS) return Promise.resolve(window.ExcelJS);
+  if (!excelPromise) {
+    excelPromise = new Promise((resolve) => {
+      const s = document.createElement('script');
+      s.src = EXCELJS_SRC; s.async = true;
+      s.onload = () => resolve(window.ExcelJS || null);
+      s.onerror = () => { excelPromise = null; resolve(null); };
+      document.head.appendChild(s);
+    });
+  }
+  return excelPromise;
+}
 
 // ---- column spec: the single source of truth for the Funds sheet + CSV ------
 // type drives the number format & grading. get(fund, cats, visibleSet) -> raw value.
@@ -91,7 +109,7 @@ const thin = (argb) => ({ style: 'thin', color: { argb } });
 const borderAll = (argb) => ({ top: thin(argb), left: thin(argb), bottom: thin(argb), right: thin(argb) });
 
 export async function exportExcel(allFunds, visibleCodes, cats, status, filterDesc) {
-  const ExcelJS = window.ExcelJS;
+  const ExcelJS = await ensureExcelJS();
   if (!ExcelJS) { exportCSV([...allFunds].filter((f) => !visibleCodes || visibleCodes.has(f.schemeCode)), cats, status && status.data_as_of); return; }
   const vis = visibleCodes || new Set();
   const wb = new ExcelJS.Workbook();

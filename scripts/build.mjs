@@ -192,6 +192,23 @@ async function main() {
   const dedup = dedupeFunds(funds, enrich, log);
   funds = dedup.funds;
   const droppedCodes = dedup.dropped; // for alerts: a deduped share-class merged, it did not close
+
+  // Fail-soft universe: a transient source outage (AMFI returning a partial/stale file) must not drop
+  // real funds from the screener or fire false "fund closed"/"new fund" alerts. Carry forward any fund
+  // that was in the prior build but is missing from today's source, marked stale, until it has been
+  // absent for MAX_ABSENT consecutive builds — only then is it treated as a genuine closure. A fund
+  // that reappears is rebuilt fresh (markers cleared), so it never shows up as "new" again either.
+  const MAX_ABSENT = 5;
+  const liveCodes = new Set(funds.map((f) => f.schemeCode));
+  let carried = 0;
+  for (const pf of priorFunds) {
+    if (liveCodes.has(pf.schemeCode)) continue;
+    const absentBuilds = (pf.absentBuilds || 0) + 1;
+    if (absentBuilds > MAX_ABSENT) continue; // gone long enough — accept the closure
+    funds.push({ ...pf, stale: true, staleSince: pf.staleSince || dataAsOf, absentBuilds });
+    carried++;
+  }
+  if (carried) log(`Universe fail-soft: ${carried} fund(s) missing from today's source carried forward (stale); ${funds.length} total`);
   const benchPath = writeJson('benchmarks.json', enrich.benchmarksJson);
   log(`Benchmark TRI: ${enrich.indicesFetched.length} indices fetched${enrich.emptyIndices.length ? `, ${enrich.emptyIndices.length} empty: ${enrich.emptyIndices.join(', ')}` : ''}`);
   log(`Coverage: ${JSON.stringify(enrich.coverage)}`);

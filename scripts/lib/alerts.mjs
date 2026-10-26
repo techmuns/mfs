@@ -132,6 +132,22 @@ export function computeAlertEvents(oldArr, newArr, status, priorIds, droppedCode
     add({ id: `DATA_HEALTH:${today}:${String(w).slice(0, 48)}`, type: 'DATA_HEALTH', severity: 'warning', title: '⚠ Data health notice', detail: String(w) });
   }
 
+  // Circuit-breaker: a source outage (AMFI/tigzig/NSE returning a partial or stale file) makes many
+  // funds vanish or reappear, or many indices fail, in ONE refresh. Real life changes a fund or two at
+  // a time, so an abnormal batch is a data glitch, not news — collapse each such type into a single
+  // honest note rather than flooding the feed with per-fund events. (The universe fail-soft in the
+  // build already prevents most of this; this is the backstop for whatever slips through.)
+  const FLOOD = Math.max(8, Math.round(newArr.length * 0.015));
+  const collapse = (type, test, limit, note) => {
+    const hits = out.filter((e) => e.type === type && test(e));
+    if (hits.length <= limit) return;
+    for (let i = out.length - 1; i >= 0; i--) if (out[i].type === type && test(out[i])) out.splice(i, 1);
+    out.push({ id: `BULK_${type}:${today}`, date: today, type: 'DATA_HEALTH', severity: 'warning', ...note(hits.length) });
+  };
+  collapse('NEW_FUND', () => true, FLOOD, (n) => ({ title: '⚠ Data-source hiccup', detail: `${n} funds appeared in one refresh — almost always a data source recovering, not ${n} genuinely new funds, so the individual alerts are suppressed.` }));
+  collapse('FUND_CLOSED', () => true, FLOOD, (n) => ({ title: '⚠ Data-source hiccup', detail: `${n} funds dropped out in one refresh — almost always a temporary data-source outage, not ${n} real closures, so the individual alerts are suppressed. They should return on the next refresh.` }));
+  collapse('DATA_HEALTH', (e) => e.id.startsWith('DATA_HEALTH:'), 5, (n) => ({ title: '⚠ Data health notice', detail: `${n} data-source warnings this refresh (e.g. a benchmark feed was briefly unavailable). Affected values fall back to the last good figure; this usually clears on the next refresh.` }));
+
   return { baseline: false, events: out };
 }
 

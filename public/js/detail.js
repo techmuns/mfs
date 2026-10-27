@@ -194,16 +194,19 @@ function managerTab(f) {
     ${ordered.map((m, i) => {
     const fp = stats.get(mgrKey(m.name)) || { aum: 0, funds: 1, hasAum: false };
     const footprint = fp.hasAum ? `Manages ${aumFmt(fp.aum)} across ${fp.funds} fund${fp.funds > 1 ? 's' : ''}` : `Manages ${fp.funds} fund${fp.funds > 1 ? 's' : ''}`;
+    // Curated, approximate industry experience (public filings / AMC factsheets) — shown only where known.
+    const exp = state.managerExp && state.managerExp.managers && state.managerExp.managers[mgrKey(m.name)];
+    const expStr = exp && exp.exp ? `<span title="Approx. industry experience — source: ${esc(exp.src || 'public filings')}">~${exp.exp} yrs experience</span> · ` : '';
     // Only show a tenure number when it is meaningful (>= 1y): the "since" date is a SEBI re-notification,
     // so a sub-year figure (0 yrs on a new fund, or a fresh re-notification) would just mislead.
     const tenure = m.since ? `On this fund since ${fmtDate(m.since)}${m.tenureYears != null && m.tenureYears >= 1 ? ' · ' + num(m.tenureYears, 1) + ' yrs' : ''}` : 'Join date not disclosed';
     return `<div class="flex items-center gap-3 rounded-xl bg-white p-3 ring-1 ring-slate-100">
       <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full font-display font-bold text-white" style="background:${i === 0 ? '#4f46e5' : '#94a3b8'}">${esc((m.name || '?').slice(0, 1))}</div>
       <div class="min-w-0 flex-1"><div class="font-semibold text-slate-800">${esc(m.name)}${i === 0 ? '<span class="ml-1.5 rounded-full bg-indigo-50 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-600">Lead</span>' : ''}</div>
-        <div class="text-xs text-slate-600">${footprint}</div>
+        <div class="text-xs text-slate-600">${expStr}${footprint}</div>
         <div class="text-[11px] text-slate-400">${tenure}</div></div></div>`;
   }).join('')}
-    <p class="text-[11px] text-slate-400">AUM is the total across every fund we track that this manager runs. “Experience” (career years) isn’t in AMFI/SEBI disclosures, so it isn’t shown. Manager data as of ${esc(fmtDate(f.manager.asOf))}. Source: AMFI/SEBI disclosures via tigzig.</p>
+    <p class="text-[11px] text-slate-400">AUM is the total across every fund we track that this manager runs. Experience is an approximate industry figure compiled from AMC factsheets / public filings for notable managers (hover it for the source) — it isn’t in AMFI/SEBI disclosures, so it shows only where we’ve curated it. Manager data as of ${esc(fmtDate(f.manager.asOf))}. Source: AMFI/SEBI disclosures via tigzig.</p>
   </div>`;
 }
 

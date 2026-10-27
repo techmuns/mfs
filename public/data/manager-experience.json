@@ -1,0 +1,19 @@
+{
+  "asOf": "2026-10",
+  "note": "Approximate total industry experience for notable fund managers, compiled from AMC factsheets/addenda and public filings. Experience figures vary by source and counting method (total career vs fund-management only) and drift over time, so these are indicative lower-bound estimates, not exact. Keyed by normalised manager name (lowercase, no dots). Extend freely — the UI shows it only where present.",
+  "managers": {
+    "sankaran naren": { "exp": 28, "src": "ICICI Prudential (2026)" },
+    "rajeev thakkar": { "exp": 30, "src": "PPFAS (official bio)" },
+    "raunak onkar": { "exp": 17, "src": "PPFAS (official bio)" },
+    "r srinivasan": { "exp": 28, "src": "SBI MF / Business Standard" },
+    "harsha upadhyaya": { "exp": 22, "src": "Kotak MF factsheet" },
+    "shreyash devalkar": { "exp": 22, "src": "Axis MF" },
+    "sailesh raj bhan": { "exp": 29, "src": "Nippon India / Value Research" },
+    "sandeep tandon": { "exp": 27, "src": "quant MF (official)" },
+    "bhagyesh kagalkar": { "exp": 30, "src": "HDFC AMC addendum" },
+    "gopal agrawal": { "exp": 20, "src": "HDFC / Cafemutual" },
+    "gopal agarwal": { "exp": 20, "src": "HDFC / Cafemutual" },
+    "amit ganatra": { "exp": 25, "src": "Morningstar / HDFC" },
+    "chirag setalvad": { "exp": 22, "src": "HDFC / public bios" }
+  }
+}

@@ -12,7 +12,7 @@ import { scoreOf, scoreColor } from './score.js';
 
 const DATA = {
   funds: './data/funds.json', categories: './data/categories.json', status: './data/status.json',
-  benchmarks: './data/benchmarks.json', alerts: './data/alerts.json',
+  benchmarks: './data/benchmarks.json', alerts: './data/alerts.json', managerExp: './data/manager-experience.json',
 };
 let detailFund = null; // fund shown in the Fund Details tab
 
@@ -192,12 +192,13 @@ function emptyState(icon, title, sub) {
 // ---- boot ------------------------------------------------------------------
 async function init() {
   try {
-    const [funds, categories, status, benchmarks, alerts] = await Promise.all([
+    const [funds, categories, status, benchmarks, alerts, managerExp] = await Promise.all([
       loadJSON(DATA.funds), loadJSON(DATA.categories), loadJSON(DATA.status),
       loadJSON(DATA.benchmarks).catch(() => ({})), loadJSON(DATA.alerts).catch(() => ({ events: [] })),
+      loadJSON(DATA.managerExp).catch(() => ({ managers: {} })),
     ]);
     state.funds = funds; state.categories = categories; state.status = status;
-    state.benchmarks = benchmarks; state.alerts = alerts;
+    state.benchmarks = benchmarks; state.alerts = alerts; state.managerExp = managerExp;
 
     document.getElementById('app-loading').remove();
     document.getElementById('app-shell').classList.remove('hidden');

@@ -160,18 +160,50 @@ function riskTab(f) {
 }
 
 // ---- Fund Manager -----------------------------------------------------------
+const mgrKey = (s) => (s || '').toLowerCase().replace(/\./g, '').replace(/\s+/g, ' ').trim();
+
+/**
+ * A manager's footprint across every fund we track: total AUM they run and how many funds. We don't
+ * get a per-manager AUM or a career-experience figure from AMFI/SEBI (tigzig), and the per-fund "since"
+ * date is only a SEBI (re-)notification — often recent, so "tenure on this fund" reads 0 for a new fund
+ * and understates a veteran elsewhere. The footprint (AUM + fund count, summed from our own data) is an
+ * honest, meaningful stand-in, computed once per open and shared by all of this fund's managers.
+ */
+function buildManagerStats() {
+  const map = new Map();
+  for (const g of state.funds) {
+    const seen = new Set();
+    for (const m of (g.manager && g.manager.names) || []) {
+      const k = mgrKey(m.name);
+      if (!k || seen.has(k)) continue;
+      seen.add(k);
+      const e = map.get(k) || { aum: 0, funds: 0, hasAum: false };
+      e.funds++;
+      if (g.aum && g.aum.cr != null) { e.aum += g.aum.cr; e.hasAum = true; }
+      map.set(k, e);
+    }
+  }
+  return map;
+}
+
 function managerTab(f) {
   if (!f.manager || !f.manager.names.length) return '<div class="rounded-xl bg-slate-50 p-4 text-sm text-slate-400">Manager details not disclosed.</div>';
   const ordered = f.manager.names; // tigzig lists the LEAD manager first (sleeve/co-managers follow)
-  const lead = ordered[0];
-  const predates = f.score && f.score.pillars && f.score.pillars.manager && f.score.pillars.manager.inputs.predatesRecord;
+  const stats = buildManagerStats();
   return `<div class="space-y-3">
-    ${predates ? `<div class="flex gap-2 rounded-xl bg-amber-50 p-3 text-xs ring-1 ring-inset ring-amber-100"><span>⚠️</span><div><b class="text-amber-700">The track record largely predates the lead manager.</b> <span class="text-amber-700/80">${esc(lead.name)} has ${lead.tenureYears}y tenure, but the fund shows a ${f.history.has10y ? '10' : '5'}-year record — read long-horizon numbers with that in mind.</span></div></div>` : ''}
-    ${ordered.map((m, i) => `<div class="flex items-center gap-3 rounded-xl bg-white p-3 ring-1 ring-slate-100">
-      <div class="flex h-10 w-10 items-center justify-center rounded-full font-display font-bold text-white" style="background:${i === 0 ? '#4f46e5' : '#94a3b8'}">${esc((m.name || '?').slice(0, 1))}</div>
+    ${ordered.map((m, i) => {
+    const fp = stats.get(mgrKey(m.name)) || { aum: 0, funds: 1, hasAum: false };
+    const footprint = fp.hasAum ? `Manages ${aumFmt(fp.aum)} across ${fp.funds} fund${fp.funds > 1 ? 's' : ''}` : `Manages ${fp.funds} fund${fp.funds > 1 ? 's' : ''}`;
+    // Only show a tenure number when it is meaningful (>= 1y): the "since" date is a SEBI re-notification,
+    // so a sub-year figure (0 yrs on a new fund, or a fresh re-notification) would just mislead.
+    const tenure = m.since ? `On this fund since ${fmtDate(m.since)}${m.tenureYears != null && m.tenureYears >= 1 ? ' · ' + num(m.tenureYears, 1) + ' yrs' : ''}` : 'Join date not disclosed';
+    return `<div class="flex items-center gap-3 rounded-xl bg-white p-3 ring-1 ring-slate-100">
+      <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full font-display font-bold text-white" style="background:${i === 0 ? '#4f46e5' : '#94a3b8'}">${esc((m.name || '?').slice(0, 1))}</div>
       <div class="min-w-0 flex-1"><div class="font-semibold text-slate-800">${esc(m.name)}${i === 0 ? '<span class="ml-1.5 rounded-full bg-indigo-50 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-600">Lead</span>' : ''}</div>
-        <div class="text-xs text-slate-400">${m.since ? 'since ' + fmtDate(m.since) : 'join date N/A'}${m.tenureYears != null ? ' · ' + m.tenureYears + ' yrs' : ''}</div></div></div>`).join('')}
-    <p class="text-[11px] text-slate-400">Manager data as of ${esc(fmtDate(f.manager.asOf))}. Source: AMFI/SEBI disclosures via tigzig.</p>
+        <div class="text-xs text-slate-600">${footprint}</div>
+        <div class="text-[11px] text-slate-400">${tenure}</div></div></div>`;
+  }).join('')}
+    <p class="text-[11px] text-slate-400">AUM is the total across every fund we track that this manager runs. “Experience” (career years) isn’t in AMFI/SEBI disclosures, so it isn’t shown. Manager data as of ${esc(fmtDate(f.manager.asOf))}. Source: AMFI/SEBI disclosures via tigzig.</p>
   </div>`;
 }
 

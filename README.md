@@ -21,6 +21,10 @@ public/            → the static site, served as-is by Cloudflare Pages (no bui
   index.html       → the page
   js/app.js        → vanilla ES module; reads the JSON below and renders the table
   data/*.json      → pre-computed data the browser loads (kept small)
+functions/         → Cloudflare Pages Functions (auto-deployed from the repo root, no config needed)
+  nav/[code].js    → same-origin proxy for MFAPI NAV history ("/nav/:code") — MFAPI dropped CORS on
+                     its GET responses, so the browser can't fetch it directly; this fetches it
+                     server-side and edge-caches it so the fund-detail growth charts keep working
 scripts/           → Node 22 ESM (built-in fetch, zero npm dependencies)
   build.mjs        → the pipeline: fetch sources → compute every metric → write public/data/*.json
   verify.mjs       → sanity-checks a few well-known funds against an independent recomputation

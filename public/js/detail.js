@@ -296,18 +296,27 @@ function wirePerf(body, f) {
       const blabel = bench ? bi + ' TRI' : '';
       navBenchmarkOverlay(el, fw, bw, f.name.length > 22 ? f.name.slice(0, 20) + '…' : f.name, blabel);
       msg.textContent = bench ? 'Live NAV (MFAPI) vs benchmark TRI · both rebased to 100 at a shared start date' : (f.benchmark && f.benchmark.reason ? 'Benchmark N/A — ' + f.benchmark.reason : 'Live NAV (MFAPI) · rebased to 100');
-    } catch { msg.innerHTML = '<span class="text-rose-500">Could not load live NAV.</span>'; }
+    } catch {
+      msg.innerHTML = '<span class="text-rose-500">Couldn’t load live NAV — the data source (MFAPI) is busy.</span> <button class="perf-retry font-semibold text-indigo-600 underline">Retry</button>';
+      const rb = msg.querySelector('.perf-retry');
+      if (rb) rb.addEventListener('click', () => { msg.textContent = 'Loading live NAV…'; draw(); });
+    }
   };
   body.querySelectorAll('.pr-rng').forEach((b) => b.addEventListener('click', () => { range = b.dataset.range; body.querySelectorAll('.pr-rng').forEach((x) => x.className = 'pr-rng rounded-md px-2.5 py-1 text-slate-500'); b.className = 'pr-rng rounded-md px-2.5 py-1 bg-white text-indigo-600 shadow-sm'; draw(); }));
   draw();
 }
 
 function wireRisk(body, f) {
-  (async () => {
-    const el = body.querySelector('.dd-chart'), msg = body.querySelector('.dd-chart-msg');
+  const el = body.querySelector('.dd-chart'), msg = body.querySelector('.dd-chart-msg');
+  const go = async () => {
     try { const nav = await fetchNav(f.schemeCode); drawdownChart(el, sliceYears(nav, null)); msg.textContent = 'Underwater drawdown from live NAV (full history)'; }
-    catch { msg.innerHTML = '<span class="text-rose-500">Could not load live NAV.</span>'; }
-  })();
+    catch {
+      msg.innerHTML = '<span class="text-rose-500">Couldn’t load live NAV — the data source (MFAPI) is busy.</span> <button class="dd-retry font-semibold text-indigo-600 underline">Retry</button>';
+      const rb = msg.querySelector('.dd-retry');
+      if (rb) rb.addEventListener('click', () => { msg.textContent = 'Loading live NAV…'; go(); });
+    }
+  };
+  go();
 }
 
 // ---- slide-in ---------------------------------------------------------------

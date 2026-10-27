@@ -1,19 +1,56 @@
-// navapi.js — the one live browser fetch: per-fund NAV history from MFAPI (CORS-enabled), cached
-// per session. Plus small helpers to window, rebase and align series for the growth charts.
+// navapi.js — the one live browser fetch: per-fund NAV history, cached per session. Plus small
+// helpers to window, rebase and align series for the growth charts.
+//
+// NAV comes from MFAPI (api.mfapi.in), but MFAPI's GET responses stopped sending a CORS header, so
+// the browser can't fetch it directly any more. We go through a SAME-ORIGIN proxy ("/nav/:code", a
+// Cloudflare Pages Function — see functions/nav/[code].js) which fetches MFAPI server-side (no CORS)
+// and edge-caches it. A direct MFAPI hit is kept as a fallback for local dev / if MFAPI restores CORS.
+// MFAPI cache misses can take 20s+ or fail transiently, so each attempt has a timeout (a hung request
+// is aborted and retried) and a couple of backoff retries, so a slow/flaky response self-heals instead
+// of leaving the chart stuck on "Could not load live NAV".
 
 const cache = new Map();
 
-export async function fetchNav(schemeCode) {
+async function fetchJsonWithTimeout(url, timeoutMs) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, { cache: 'no-cache', signal: ctrl.signal });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    return await res.json();
+  } finally { clearTimeout(timer); }
+}
+
+async function fetchNavJson(schemeCode, timeoutMs) {
+  try {
+    return await fetchJsonWithTimeout(`/nav/${schemeCode}`, timeoutMs);
+  } catch (err) {
+    // Fall back to a direct MFAPI hit only when the proxy ROUTE is absent (404 — e.g. local dev or the
+    // function isn't deployed). On a timeout/upstream error a direct hit would just fail on CORS too.
+    if (String(err && err.message).includes('404')) return fetchJsonWithTimeout(`https://api.mfapi.in/mf/${schemeCode}`, timeoutMs);
+    throw err;
+  }
+}
+
+export async function fetchNav(schemeCode, { retries = 2, timeoutMs = 13000 } = {}) {
   if (cache.has(schemeCode)) return cache.get(schemeCode);
-  const res = await fetch(`https://api.mfapi.in/mf/${schemeCode}`, { cache: 'no-cache' });
-  if (!res.ok) throw new Error('HTTP ' + res.status);
-  const raw = await res.json();
-  const pts = (raw.data || []).map((d) => {
-    const [dd, mm, yy] = d.date.split('-').map(Number);
-    return [Date.UTC(yy, mm - 1, dd), Number(d.nav)];
-  }).filter((p) => isFinite(p[0]) && isFinite(p[1]) && p[1] > 0).sort((a, b) => a[0] - b[0]);
-  cache.set(schemeCode, pts);
-  return pts;
+  let lastErr;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const raw = await fetchNavJson(schemeCode, timeoutMs);
+      const pts = (raw.data || []).map((d) => {
+        const [dd, mm, yy] = d.date.split('-').map(Number);
+        return [Date.UTC(yy, mm - 1, dd), Number(d.nav)];
+      }).filter((p) => isFinite(p[0]) && isFinite(p[1]) && p[1] > 0).sort((a, b) => a[0] - b[0]);
+      if (!pts.length) throw new Error('empty NAV series');
+      cache.set(schemeCode, pts);
+      return pts;
+    } catch (err) {
+      lastErr = err;
+      if (attempt < retries) await new Promise((r) => setTimeout(r, 700 * (attempt + 1)));
+    }
+  }
+  throw lastErr;
 }
 
 /** Keep points within the last `years` (null = all). */
